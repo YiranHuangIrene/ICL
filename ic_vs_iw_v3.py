@@ -9,6 +9,11 @@ from datasets_v2 import *
 import sys
 import os
 import time
+from tqdm import tqdm
+import wandb
+WANDB = True
+
+os.environ['CUDA_VISIBLE_DEVICES'] = "7,8"
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] ='false'
 os.environ['XLA_PYTHON_CLIENT_ALLOCATOR']='platform'
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
@@ -29,7 +34,8 @@ L = 32
 S = 10000
 N = int(sys.argv[2])
 Nmax = 32
-D = int(sys.argv[3]) - (2*Nmax + 1)
+# D = int(sys.argv[3]) - (2*Nmax + 1)
+D = 63
 
 alpha = float(sys.argv[4])
 P = 1.0/(np.arange(1,K+1)**alpha)
@@ -48,7 +54,7 @@ eps = float(sys.argv[8])
 att_layers = 2
 mlp_layers = 3
 
-no_repeats = True
+no_repeats = True # TODO : if B > 0 ?
 nruns = 1
 store= True
 
@@ -58,6 +64,24 @@ keys= random.split(key,nruns)
 prefix = "./outs/I%08d_K%d_N%d_L%d_D%d_a_%.2f_B%d_pB_%.2f_pC_%.2f_e%.3f_lr%.3f_nr%d" %(niters,K,N,L,D,alpha,B,p_B,p_C,eps,lr,int(no_repeats))
 
 print(prefix)
+# initialize wandb and log the parameters
+if WANDB:
+    wandb.init(project="ICL", name=f"run_{device}_{prefix.split('/')[-1]}")
+    config = wandb.config
+    config.K = K
+    config.L = L
+    config.S = S
+    config.N = N
+    config.D = D
+    config.alpha = alpha
+    config.B = B
+    config.p_B = p_B
+    config.p_C = p_C
+    config.batchsize = batchsize
+    config.lr = lr
+    config.w_decay = w_decay
+    config.eps = eps
+    config.no_repeats = no_repeats
 
 for ii in range(nruns):
     run = 2*ii + device
@@ -89,7 +113,7 @@ for ii in range(nruns):
 
     targets_num_iter = np.zeros((niters,K))
 
-    for n in range(niters):
+    for n in tqdm(range(niters)):
         start = time.time()
         if n%param_store_freq==0:
             params_store = []
@@ -106,6 +130,8 @@ for ii in range(nruns):
                 loss_iw = loss(params,test_inputs_iw,test_labels_iw)
                 print("Run: %d  Iter (x%d): %04d  Test loss: %.3f IC loss: %.3f IC2 loss: %.3f IW loss: %.3f"\
                       %(run+1,print_freq, n/print_freq,loss_test, loss_ic, loss_ic2, loss_iw))
+                if WANDB:
+                    wandb.log({"Iteration": n, "Test_Loss": loss_test, "Test_Loss/IC": loss_ic, "Test_Loss/IC2": loss_ic2, "Test_Loss/IW": loss_iw})
             if print_acc:
                 loss_test = loss(params,test_inputs,test_labels)
                 acc_test = accuracy(params,test_inputs,test_labels)
@@ -114,6 +140,8 @@ for ii in range(nruns):
                 acc_iw = accuracy(params,test_inputs_iw,test_labels_iw)
                 print("Run: %d  Iter (x%d): %04d Test loss: %.3f Test acc: %.3f IC acc: %.3f IC2 acc: %.3f IW acc: %.3f"\
                       %(run+1,print_freq,n/print_freq,loss_test, acc_test, acc_ic, acc_ic2, acc_iw))
+                if WANDB:
+                    wandb.log({"Iteration": n, "Test_Loss": loss_test, "Test_Accuracy": acc_test, "Test_Accuracy/IC": acc_ic, "Test_Accuracy/IC2": acc_ic2, "Test_Accuracy/IW": acc_iw})
 
         
         end1 = time.time()
