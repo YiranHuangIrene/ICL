@@ -111,7 +111,7 @@ def generate_input_seqs(mus_label, mus_class, labels_class,S, N, Nmax, eps= 0.1,
     choices_c = np.tile(choices_c,B)
     [np.random.shuffle(x) for x in choices_c]
 
-    targets_ind = np.random.choice(choices.shape[1], size = (choices.shape[0],))
+    targets_ind = np.random.choice(choices.shape[1], size = (choices.shape[0],)) # select the target from the context
     targets = choices[np.arange(choices.shape[0]),targets_ind]
 
     targets_c_ind = np.random.choice(choices_c.shape[1], size = (choices_c.shape[0],))
@@ -127,19 +127,19 @@ def generate_input_seqs(mus_label, mus_class, labels_class,S, N, Nmax, eps= 0.1,
     #print(np.arange(S)[~filt_C])
     #print(np.arange(S)[~filt_B])
 
-    inputs[filt_C,:-1:2,2*Nmax+1:] = (e_fac*(mus_class[choices] + eps*np.random.normal(size = (S,N,D))/np.sqrt(D)))[filt_C]
+    inputs[filt_C,:-1:2,2*Nmax+1:] = (e_fac*(mus_class[choices] + eps*np.random.normal(size = (S,N,D))/np.sqrt(D)))[filt_C]  # Context item embeddings sampled from the bursty sequences
     
     if flip_labels:
         wrong_label = (labels_class + 1)%L
         inputs[filt_C,1:-1:2,2*Nmax+1:] = ((mus_label[wrong_label])[choices])[filt_C]
     else:
-        inputs[filt_C,1:-1:2,2*Nmax+1:] = ((mus_label[labels_class])[choices])[filt_C]
+        inputs[filt_C,1:-1:2,2*Nmax+1:] = ((mus_label[labels_class])[choices])[filt_C]  # Label item embeddings sampled from the bursty sequences
 
-    inputs[filt_C,-1,2*Nmax+1:] = ((e_fac*(mus_class[targets] + eps*np.random.normal(size = (S,D))/np.sqrt(D))))[filt_C]
+    inputs[filt_C,-1,2*Nmax+1:] = ((e_fac*(mus_class[targets] + eps*np.random.normal(size = (S,D))/np.sqrt(D))))[filt_C]  # Target item embedding sampled from the bursty sequences
 
-    inputs[~filt_C,:-1:2,2*Nmax+1:] = (e_fac*(mus_class_new[choices_c] + eps*np.random.normal(size = (S,N,D))/np.sqrt(D)))[~filt_C]
-    inputs[~filt_C,1:-1:2,2*Nmax+1:] = ((mus_label[labels_class_new])[choices_c])[~filt_C]
-    inputs[~filt_C,-1,2*Nmax+1:] = (e_fac*(mus_class_new[targets_c] + eps*np.random.normal(size = (S,D))/np.sqrt(D)))[~filt_C]
+    inputs[~filt_C,:-1:2,2*Nmax+1:] = (e_fac*(mus_class_new[choices_c] + eps*np.random.normal(size = (S,N,D))/np.sqrt(D)))[~filt_C] # Context item embeddings sampled from the OOD sequences
+    inputs[~filt_C,1:-1:2,2*Nmax+1:] = ((mus_label[labels_class_new])[choices_c])[~filt_C]  # Label item embeddings sampled from the OOD sequences
+    inputs[~filt_C,-1,2*Nmax+1:] = (e_fac*(mus_class_new[targets_c] + eps*np.random.normal(size = (S,D))/np.sqrt(D)))[~filt_C]   # Target item embedding sampled from the OOD sequences
 
     shifts = np.random.choice((2*Nmax + 1) - (2*N + 1) + 1, size = (S))
     
