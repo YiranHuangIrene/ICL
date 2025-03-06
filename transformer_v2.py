@@ -4,6 +4,22 @@ import jax.numpy as jnp
 from jax import grad, jit, vmap,pmap
 from jax import random
 from jax.nn import relu
+from functools import partial
+
+def rotary_embedding(seq_len, dim, base = 10000):
+    theta = base ** (-2 * (jnp.arange(0, dim//2 ) / dim))
+    pos = jnp.arange(seq_len)[:, None]
+    sinusoid = pos * theta[None, :]
+    cos = jnp.cos(sinusoid)
+    cos = jnp.repeat(cos,2,axis=-1)
+    sin = jnp.sin(sinusoid)
+    sin = jnp.repeat(sin,2,axis=-1)
+    return cos, sin
+
+def apply_rotary_embedding(x, cos, sin):
+    x1, x2 = x[..., ::2], x[..., 1::2]
+    x_rot = jnp.stack([-x2, x1], axis=-1).reshape(x.shape)
+    return x * cos + x_rot * sin
 
 def entropy(p):
     return -jnp.sum(p*np.log(p+1e-12),axis=-1)
@@ -23,7 +39,7 @@ def init_network_params(att_layers, mlp_layers, k_dim, input_dim, numclasses, ke
     for k in range(att_layers):
         params += [attention_head_params(k_dim, input_dim ,keys[k], scale = scale)]
 
-    keys = random.split(key, mlp_layers + 1)
+    keys = random.split(key, mlp_layers + 1) #TODO if numbes of att layers equals mlp layers, then the generated keys will be the same. 
     for k in range(mlp_layers):
         params += [[random.normal(keys[2*k],(input_dim ,input_dim))*np.sqrt(2/input_dim), \
                     random.normal(keys[2*k+1],(1,))*np.sqrt(1/input_dim)]]           
@@ -36,13 +52,16 @@ def init_network_params(att_layers, mlp_layers, k_dim, input_dim, numclasses, ke
 #Q is (k_dim x input_dim)
 #K is (k_dim x input_dim)
 #V is (input_dim x input_dim)
-def attention_head(QKV, seq,mask = None):
+def attention_head(QKV, seq,mask = None, rope = False, base = 10000):
     querys,keys,values = [jnp.einsum('ijk,lk->ijl',seq,x) for x in QKV] #(batchsize x seq_length x input_dim) 
-    
+    if rope:
+        cos, sin= rotary_embedding(seq.shape[1], seq.shape[2], base)
+        querys, keys = apply_rotary_embedding(querys, cos= cos, sin = sin), apply_rotary_embedding(keys, cos= cos, sin = sin)
+
     if mask is None:
         mask = jnp.zeros((seq.shape[1],seq.shape[1]))
         
-    probs = jax.nn.softmax(mask[None,:,:] + jnp.einsum('...ij,...kj->...ik',keys,querys),axis=-2)
+    probs = jax.nn.softmax(mask[None,:,:] + jnp.einsum('...ij,...kj->...ik',keys,querys),axis=-2) # Key * Query_transpose, different from the original transformer, so the mask is also transposed 
 
     out = jnp.einsum('...ij,...ik->...jk',probs,values) #(batchsize x seq_length x input_dim)
 
@@ -60,14 +79,14 @@ def attention_head2(QKV, seq,mask = None):
 
     return out
 
-def forward(params, inputs): #inputs are (batchsize x seq_length x input_dim)
+def forward(params, inputs,rope = False, base = 10000): #inputs are (batchsize x seq_length x input_dim)
     x = inputs
     
     mask = jnp.ones((x.shape[1],x.shape[1]))*(-jnp.inf)
     mask = jnp.tril(mask, k = -1)
 
     for l in range(len(params)-4):
-        x = x + attention_head(params[l],x,mask=mask)
+        x = x + attention_head(params[l],x,mask=mask,rope = rope, base = base)
 
     for l in range(len(params)-4, len(params)-1):
         x = relu(jnp.matmul(x,params[l][0].T)  + params[l][1])
@@ -76,14 +95,14 @@ def forward(params, inputs): #inputs are (batchsize x seq_length x input_dim)
     
     return x
 
-def loss(params, inputs, labels):
-    outputs = forward(params,inputs)
+def loss(params, inputs, labels, rope = False, base = 10000):
+    outputs = forward(params,inputs,rope = rope, base = base)
     label_preds = jax.nn.softmax(outputs)
     label_probs = jnp.sum(label_preds*labels,axis=-1)
     return -jnp.mean(jnp.log(label_probs))
 
-def accuracy(params,inputs,labels, mask = None, flip_labels = False):
-    outputs = forward(params,inputs)
+def accuracy(params,inputs,labels, mask = None, flip_labels = False, rope = False, base = 10000):
+    outputs = forward(params,inputs,rope = rope, base = base)
     label_preds = jax.nn.softmax(outputs)
     if mask is None:
         label_preds_inds = jnp.argmax(label_preds,axis=1)
@@ -98,9 +117,9 @@ def accuracy(params,inputs,labels, mask = None, flip_labels = False):
 
     return jnp.mean(label_preds_inds == label_inds)
 
-@jit
-def update(params, x, y, lr = 1e-1, w_decay = 1e-6):
-    grads = grad(loss,argnums=0)(params, x, y)
+@partial(jit, static_argnames=['rope', 'base'])
+def update(params, x, y, lr = 1e-1, w_decay = 1e-6, rope = False, base = 10000):
+    grads = grad(loss,argnums=0)(params, x, y,rope = rope, base = base)
     
     params2 = []
     for p in range(len(params)):
