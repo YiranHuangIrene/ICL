@@ -66,10 +66,8 @@ def generate_input_seqs(mus_label, mus_class, labels_class,S, N, Nmax, eps= 0.1,
     K = mus_class.shape[0]
     D = mus_label.shape[1]
 
-    if test:
-        K_c = 128
-    else: 
-        K_c = S
+
+    K_c = 128
     mus_class_new = np.random.normal(size = (K_c,D))/np.sqrt(D)
 
     if K_c < L or K_c%L != 0:
