@@ -1,10 +1,26 @@
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax import grad, jit, vmap,pmap
+from jax import grad, jit, vmap,pmap,value_and_grad
 from jax import random
-from jax.nn import relu
+from jax.nn import relu, silu
 from functools import partial
+from typing import Optional
+
+def apply_rms_norm(
+    x: jnp.ndarray,
+    weight: jnp.ndarray,
+    eps: float = 1e-6,
+) -> jnp.ndarray:
+    # Calculate the RMS value along the specified axis
+    variance = jnp.mean(jnp.square(x), axis=-1, keepdims=True)
+    # Add epsilon for numerical stability
+    rms = jnp.sqrt(variance + eps)
+    # Normalize x
+    x_normalized = x / rms
+    x_normalized = weight * x_normalized 
+    
+    return x_normalized
 
 def rotary_embedding(seq_len, dim, base = 10000):
     theta = base ** (-2 * (jnp.arange(0, dim//2 ) / dim))
@@ -33,11 +49,19 @@ def attention_head_params(k_dim, input_dim, key, scale=1e-2):
     q_key, k_key, v_key = random.split(key,3)
     return scale*random.normal(q_key, (k_dim, input_dim)), scale*random.normal(k_key, (k_dim, input_dim)),scale*random.normal(v_key, (input_dim, input_dim))
 
-def init_network_params(att_layers, mlp_layers, k_dim, input_dim, numclasses, key, scale = 1e-2):
+def rms_norm_params(input_dim):
+    return jnp.ones((input_dim,))
+
+def init_network_params(att_layers, mlp_layers, k_dim, input_dim, numclasses, rms_norm, key, scale = 1e-2):
     keys = random.split(key, att_layers + 1)
     params = []
     for k in range(att_layers):
-        params += [attention_head_params(k_dim, input_dim ,keys[k], scale = scale)]
+        if rms_norm:
+            params += [[rms_norm_params(input_dim),attention_head_params(k_dim, input_dim ,keys[k], scale = scale),rms_norm_params(input_dim)]]
+            params += [[rms_norm_params(input_dim),attention_head_params(k_dim, input_dim ,keys[k], scale = scale)]]
+        else:
+            params += [attention_head_params(k_dim, input_dim ,keys[k], scale = scale)]
+
 
     keys = random.split(key, mlp_layers + 1) #TODO if numbes of att layers equals mlp layers, then the generated keys will be the same. 
     for k in range(mlp_layers):
@@ -79,30 +103,40 @@ def attention_head2(QKV, seq,mask = None):
 
     return out
 
-def forward(params, inputs,rope = False, base = 10000): #inputs are (batchsize x seq_length x input_dim)
+def forward(params, inputs,rope = False, base = 10000, act = "silu", rms_norm = True): #inputs are (batchsize x seq_length x input_dim)
     x = inputs
     
     mask = jnp.ones((x.shape[1],x.shape[1]))*(-jnp.inf)
     mask = jnp.tril(mask, k = -1)
+    if act == "silu":
+        act_fn = silu
+    elif act == "relu":
+        act_fn = relu
 
-    for l in range(len(params)-4):
-        x = x + attention_head(params[l],x,mask=mask,rope = rope, base = base)
+    if rms_norm:
+         for l in range(len(params)-4):
+            x = apply_rms_norm(x,params[l][0])
+            x = x + attention_head(params[l][1],x,mask=mask,rope = rope, base = base)
+            x = apply_rms_norm(x,params[l][2])
+    else:    
+        for l in range(len(params)-4):
+            x = x + attention_head(params[l],x,mask=mask,rope = rope, base = base)
 
     for l in range(len(params)-4, len(params)-1):
-        x = relu(jnp.matmul(x,params[l][0].T)  + params[l][1])
+        x = act_fn(jnp.matmul(x,params[l][0].T)  + params[l][1])
 
     x = jnp.matmul(x[:,-1,:],params[-1][0].T)	
     
     return x
 
-def loss(params, inputs, labels, rope = False, base = 10000):
-    outputs = forward(params,inputs,rope = rope, base = base)
+def loss(params, inputs, labels, rope = False, base = 10000, act = "silu", rms_norm = True):
+    outputs = forward(params,inputs,rope = rope, base = base, act = "silu", rms_norm = rms_norm)
     label_preds = jax.nn.softmax(outputs)
     label_probs = jnp.sum(label_preds*labels,axis=-1)
     return -jnp.mean(jnp.log(label_probs))
 
-def accuracy(params,inputs,labels, mask = None, flip_labels = False, rope = False, base = 10000):
-    outputs = forward(params,inputs,rope = rope, base = base)
+def accuracy(params,inputs,labels, mask = None, flip_labels = False, rope = False, base = 10000, act = "silu", rms_norm = True):
+    outputs = forward(params,inputs,rope = rope, base = base, act = "silu", rms_norm = rms_norm)
     label_preds = jax.nn.softmax(outputs)
     if mask is None:
         label_preds_inds = jnp.argmax(label_preds,axis=1)
@@ -117,15 +151,26 @@ def accuracy(params,inputs,labels, mask = None, flip_labels = False, rope = Fals
 
     return jnp.mean(label_preds_inds == label_inds)
 
-@partial(jit, static_argnames=['rope', 'base'])
-def update(params, x, y, lr = 1e-1, w_decay = 1e-6, rope = False, base = 10000):
-    grads = grad(loss,argnums=0)(params, x, y,rope = rope, base = base)
+@partial(jit, static_argnames=['rope', 'base','act','rms_norm'])
+def update(params, x, y, lr = 1e-1, w_decay = 1e-6, rope = False, base = 10000, act = "silu", rms_norm = True):
+    # grads = grad(loss,argnums=0)(params, x, y,rope = rope, base = base, act = "silu", rms_norm = rms_norm)
+    losses, grads = value_and_grad(loss,argnums=0)(params, x, y,rope = rope, base = base, act = "silu", rms_norm = rms_norm)
     
     params2 = []
-    for p in range(len(params)):
-        params2 += [[(1-w_decay)*params[p][q] - lr*grads[p][q] for q in range(len(params[p]))]]
+    # for p in range(len(params)):
+    #     params2 += [[(1-w_decay)*params[p][q] - lr*grads[p][q] for q in range(len(params[p]))]]
         
-    return params2
+    for p in range(len(params)):
+        if len(params[p]) == 3 and rms_norm:
+            rms_before = (1-w_decay)*params[p][0] - lr*grads[p][0]
+            rms_after = (1-w_decay)*params[p][2] - lr*grads[p][2]
+            attn = [(1-w_decay)*params[p][1][r] - lr*grads[p][1][r] for r in range(len(params[p][1]))]
+            params2 += [[rms_before,attn,rms_after]]
+        else:
+            params2 += [[(1-w_decay)*params[p][q] - lr*grads[p][q] for q in range(len(params[p]))]]
+        
+        
+    return losses, params2
 
 
 def init_network_params_mlp(layers, input_dim, numclasses, key, scale = 1e0):
