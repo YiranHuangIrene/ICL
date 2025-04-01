@@ -165,7 +165,7 @@ for ii in range(nruns):
 
         
         end1 = time.time()
-        inputs_batch, labels_batch, target_classes = generate_input_seqs(mus_label,mus_class,labels_class,batchsize,N, Nmax,eps = eps, P = P, B = B, p_B = p_B, p_C = p_C, output_target_labels = True, no_repeats = no_repeats, test=False, rope = rope)
+        inputs_batch, labels_batch, target_classes = generate_input_seqs(mus_label,mus_class,labels_class,batchsize,N, Nmax,eps = eps, P = P, B = B, p_B = p_B, p_C = p_C, output_target_labels = True, no_repeats = no_repeats, rope = rope)
         end2 = time.time()
         loss_train, params = update(params,inputs_batch,labels_batch,  lr = lr, rope = rope, base = rope_base, act = act, rms_norm = rms_norm)
         end3 = time.time()

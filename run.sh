@@ -24,11 +24,11 @@ rms_norm=1
 # python3 ic_vs_iw_v3.py ${K} ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} ${no_repeats} ${rope} ${rope_base} ${att_layers} ${num_heads} ${mlp_layers} ${block} ${act} ${rms_norm} ${device} &
 for device in 0;
 do
-    for att_layers in 2 3 4 5 6;
+    for att_layers in 2
     do
         # python3 ic_vs_iw_v3.py 2048 ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} ${no_repeats} ${rope} ${rope_base} ${att_layers} ${num_heads} ${mlp_layers} ${block} ${act} ${rms_norm} ${device} &
         # python3 ic_vs_iw_v3.py ${K} 16 ${D} ${a} ${B} ${pB} ${pC} ${eps} ${no_repeats} ${rope} ${rope_base} ${att_layers} ${num_heads} ${mlp_layers} ${block} ${act} ${rms_norm} ${device} &
-        python3 ic_vs_iw_v3.py ${K} ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} ${no_repeats} ${rope} ${rope_base} ${att_layers} ${num_heads} ${mlp_layers} ${block} ${act} ${rms_norm} ${device} &
+        python3 ic_vs_iw_v3.py ${K} ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} ${no_repeats} ${rope} ${rope_base} ${att_layers} ${num_heads} ${mlp_layers} ${block} ${act} ${rms_norm} ${device} 
         # python3 ic_vs_iw_v3.py ${K} ${N} ${D} 1 ${B} ${pB} ${pC} ${eps} ${no_repeats} ${rope} ${rope_base} ${att_layers} ${num_heads} ${mlp_layers} ${block} ${act} ${rms_norm} ${device} &
     done
 done
