@@ -1,50 +1,43 @@
 #/bin/bash
+cd /shared-local/aoq609/MLLM_ICL/ICL
+source /shared-local/aoq609/anaconda3/bin/activate ICL
+export CUDA_VISIBLE_DEVICES=0
 
-K=128
+K=4096
 N=8
-D=63
+D=128
 a=0
-B=1
+B=2
 pB=1
-pC=0.8
+pC=0
 eps=0.1
+no_repeats=0
+rope=1
+rope_base=10000
+num_heads=1
+mlp_layers=3
+block=1
+act="silu"
+rms_norm=1
 
-for K in 128 256 512 2048;
+# Example
+# python3 ic_vs_iw_v3.py ${K} ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} ${no_repeats} ${rope} ${rope_base} ${att_layers} ${num_heads} ${mlp_layers} ${block} ${act} ${rms_norm} ${device} &
+for device in 0;
 do
-	for B in 0 1 2 4;
-	do
-		python3 ic_vs_iw_v3.py ${K} ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} 0 &
-		pid1=$!
-		python3 ic_vs_iw_v3.py ${K} ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} 1 &
-		pid2=$!
-		wait $pid1
-		wait $pid2
-	done
+    for att_layers in 2 3 4 5 6;
+    do
+        # python3 ic_vs_iw_v3.py 2048 ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} ${no_repeats} ${rope} ${rope_base} ${att_layers} ${num_heads} ${mlp_layers} ${block} ${act} ${rms_norm} ${device} &
+        # python3 ic_vs_iw_v3.py ${K} 16 ${D} ${a} ${B} ${pB} ${pC} ${eps} ${no_repeats} ${rope} ${rope_base} ${att_layers} ${num_heads} ${mlp_layers} ${block} ${act} ${rms_norm} ${device} &
+        python3 ic_vs_iw_v3.py ${K} ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} ${no_repeats} ${rope} ${rope_base} ${att_layers} ${num_heads} ${mlp_layers} ${block} ${act} ${rms_norm} ${device} &
+        # python3 ic_vs_iw_v3.py ${K} ${N} ${D} 1 ${B} ${pB} ${pC} ${eps} ${no_repeats} ${rope} ${rope_base} ${att_layers} ${num_heads} ${mlp_layers} ${block} ${act} ${rms_norm} ${device} &
+    done
 done
 
-# for pB in 1.0;
-# do
-# 	for a in 0.0 0.25 0.5 0.75 1.0 1.25 1.5 1.75;
-# 	do
-# 		python3 ic_vs_iw_v3.py ${K} ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} 0 &
-# 		pid1=$!
-# 		python3 ic_vs_iw_v3.py ${K} ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} 1 &
-# 		pid2=$!
-# 		wait $pid1
-# 		wait $pid2
-# 	done
-# done
 
-#for eps in 0.0 0.1 0.2 0.4 0.8 1.6 3.2 6.4;
-# for eps in 0.3 0.5 0.6 0.7;
-# do
-# 	python3 ic_vs_iw_v3.py ${K} ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} 0 &
-# 	pid1=$!
-# 	python3 ic_vs_iw_v3.py ${K} ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} 1 &
-# 	pid2=$!
-# 	wait $pid1
-# 	wait $pid2
-# done
 
-# python3 ic_vs_iw_v3.py ${K} ${N} ${D} ${a} ${B} ${pB} ${pC} ${eps} 0 
-# python3 ic_vs_iw_v3.py 128 8 63 0 1 1 0.8 0.3 0 
+
+
+
+
+
+

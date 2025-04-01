@@ -57,8 +57,11 @@ def init_network_params(att_layers, mlp_layers, k_dim, input_dim, numclasses, rm
     params = []
     for k in range(att_layers):
         if rms_norm:
+            # RMS norm before and after the attention head
             params += [[rms_norm_params(input_dim),attention_head_params(k_dim, input_dim ,keys[k], scale = scale),rms_norm_params(input_dim)]]
+            ## RMS norm before the attention head
             # params += [[rms_norm_params(input_dim),attention_head_params(k_dim, input_dim ,keys[k], scale = scale)]]
+            # RMS norm after the attention head
             # params += [[attention_head_params(k_dim, input_dim ,keys[k], scale = scale),rms_norm_params(input_dim)]]
         else:
             params += [attention_head_params(k_dim, input_dim ,keys[k], scale = scale)]

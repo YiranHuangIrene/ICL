@@ -21,20 +21,22 @@ def accuracy(outputs, labels, flip_labels=False):
         labels_inds = (torch.argmax(labels, dim=-1) + 1) % labels.shape[-1]
     return (predictions_inds == labels_inds).float().mean()
 
+
 def evaluate(model, dataloader, flip_labels=False, device=None):
     model.eval()
+    loss_criterion = torch.nn.CrossEntropyLoss()
     with torch.no_grad():
         for inputs, labels in dataloader:
             inputs = inputs.to(device)
             labels = labels.to(device)
             outputs = model(inputs)
-            loss = F.cross_entropy(outputs, labels)
+            loss = loss_criterion(outputs, labels)
             acc = accuracy(outputs, labels, flip_labels=flip_labels)
         return loss, acc
 
 def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, test_iw_loader, optimizer, device, print_every, ckpt_store_freq, prefix, niters):
     model.to(device)
-    
+    loss_criterion = torch.nn.CrossEntropyLoss()
     for n, batch in tqdm(enumerate(train_loader), total=niters):
         model.train()
         inputs, labels = batch
@@ -45,7 +47,7 @@ def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, tes
         
         # Forward pass
         outputs = model(inputs)
-        loss = F.cross_entropy(outputs, labels)
+        loss = loss_criterion(outputs, labels)
         
         # Backward pass
         loss.backward()
@@ -65,7 +67,7 @@ def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, tes
             loss_ic, acc_ic = evaluate(model, test_ic_loader, flip_labels=False, device=device)
             loss_ic2, acc_ic2 = evaluate(model, test_ic2_loader, flip_labels=True, device=device)
             loss_iw, acc_iw = evaluate(model, test_iw_loader, flip_labels=False, device=device)
-            print(f"Iteration {n}: Test loss: {loss_test:.4f}, Test acc: {acc_test:.4f}, IC loss: {loss_ic:.4f}, IC acc: {acc_ic:.4f}, IC2 loss: {loss_ic2:.4f}, IC2 acc: {acc_ic2:.4f}, IW loss: {loss_iw:.4f}, IW acc: {acc_iw:.4f}")
+            print(f"Iteration {n}: Train loss: {loss:.4f}, Test loss: {loss_test:.4f}, Test acc: {acc_test:.4f}, IC loss: {loss_ic:.4f}, IC acc: {acc_ic:.4f}, IC2 loss: {loss_ic2:.4f}, IC2 acc: {acc_ic2:.4f}, IW loss: {loss_iw:.4f}, IW acc: {acc_iw:.4f}")
             if WANDB:
                 wandb.log({"Iteration": n, "Test_Loss": loss_test, "Test_Accuracy": acc_test, "IC_Loss": loss_ic, "IC_Accuracy": acc_ic, "IC2_Loss": loss_ic2, "IC2_Accuracy": acc_ic2, "IW_Loss": loss_iw, "IW_Accuracy": acc_iw})
 
@@ -107,8 +109,8 @@ if __name__ == "__main__":
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
     optimizer = sys.argv[15]
-    print_every = 200  # Print every n iterations
-    ckpt_store_freq = 200 # Store every n iterations
+    print_every = 1000  # Print every n iterations
+    ckpt_store_freq = 10000 # Store every n iterations
 
     # Initialize wandb
     prefix = f"./outs/K{K}_N{N}_D{D}_alpha{alpha}_B{B}_pB{p_B}_pC{p_C}_eps{eps}_no_repeats{no_repeats}_rope_theta{rope_theta}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}"
@@ -198,11 +200,11 @@ if __name__ == "__main__":
     test_iw_dataset = [sample for sample in test_iw_dataset]
     
     # Load the datasets with dataloader
-    train_loader = DataLoader(train_dataset, batch_size=None, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=None)
     test_loader = DataLoader(test_dataset, batch_size=None)
     test_ic_loader = DataLoader(test_ic_dataset, batch_size=None)
     test_ic2_loader = DataLoader(test_ic2_dataset, batch_size=None)
     test_iw_loader = DataLoader(test_iw_dataset, batch_size=None)
 
     
-    train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, test_iw_loader, optimizer, device, print_every, ckpt_store_freq, prefix, niters)
+    train(model=model, train_loader=train_loader, test_loader=test_loader, test_ic_loader=test_ic_loader, test_ic2_loader=test_ic2_loader, test_iw_loader=test_iw_loader, optimizer=optimizer, device=device, print_every=print_every, ckpt_store_freq=ckpt_store_freq, prefix=prefix, niters=niters)
