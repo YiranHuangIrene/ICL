@@ -55,7 +55,7 @@ def generate_targets_only(mus_label, mus_class, labels_class,S, eps= 0.1, P = No
     
     return jnp.array(inputs), jnp.array(labels)
 
-def generate_input_seqs(mus_label, mus_class, labels_class,S, N, Nmax, eps= 0.1, B = 0, p_B = 0, P = None, p_C = 0, flip_labels = False, output_target_labels = False, no_repeats = False, seq_labels = False, test=True, rope = False):
+def generate_input_seqs(mus_label, mus_class, labels_class,S, N, Nmax, eps= 0.1, B = 0, p_B = 0, P = None, p_C = 0, flip_labels = False, output_target_labels = False, no_repeats = False, seq_labels = False, rope = False):
     e_fac = 1/np.sqrt(1+eps**2)
     
     L = mus_label.shape[0]

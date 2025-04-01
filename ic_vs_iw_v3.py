@@ -67,7 +67,7 @@ store= True # Whether to store the model
 
 
 keys= random.split(key,nruns)
-prefix = "./outs/K%d_N%d_L%d_D%d_a_%.2f_B%d_pB_%.2f_pC_%.2f_e%.3f_lr%.3f_nr%d_rope%d_base%d_att_layers%d_num_heads%d_mlp_layers%d_block%d_act%s_rms_norm%d" %(K,N,L,D,alpha,B,p_B,p_C,eps,lr,int(no_repeats),int(rope),rope_base,att_layers,num_heads,mlp_layers,block,act,rms_norm)
+prefix = "./outs/K%d_N%d_L%d_D%d_a_%.2f_B%d_pB_%.2f_pC_%.2f_e%.3f_lr%.3f_nr%d_rope%d_base%d_att_layers%d_num_heads%d_mlp_layers%d_block%d_act%s_rms_norm%d_new_residual" %(K,N,L,D,alpha,B,p_B,p_C,eps,lr,int(no_repeats),int(rope),rope_base,att_layers,num_heads,mlp_layers,block,act,rms_norm)
 print(prefix)
 
 # initialize wandb and log the parameters
@@ -201,6 +201,17 @@ for ii in range(nruns):
                 # Extract attention layer parameters
                 for l in range(att_layers):
                     if rms_norm:
+                        #before
+                        # rms_before[l] = params_history[h][l][0]
+                        # Q[l] = params_history[h][l][1][0]
+                        # K[l] = params_history[h][l][1][1]
+                        # V[l] = params_history[h][l][1][2]
+                        # after
+                        # Q[l] = params_history[h][l][0][0]
+                        # K[l] = params_history[h][l][0][1]
+                        # V[l] = params_history[h][l][0][2]
+                        # rms_after[l] = params_history[h][l][1]
+                        # all
                         rms_before[l] = params_history[h][l][0]
                         Q[l] = params_history[h][l][1][0]
                         K[l] = params_history[h][l][1][1]
@@ -236,6 +247,8 @@ for ii in range(nruns):
                 if rms_norm:
                     for l in range(att_layers):
                         params_to_save.extend([rms_before[l], rms_after[l]])
+                        # params_to_save.extend(rms_before[l])
+                        # params_to_save.extend([rms_after[l]])
                 
                 # Add feedforward network parameters and scaling parameter
                 params_to_save.extend([w1, b1, w2, b2, w3, b3, s])

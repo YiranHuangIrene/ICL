@@ -58,7 +58,8 @@ def init_network_params(att_layers, mlp_layers, k_dim, input_dim, numclasses, rm
     for k in range(att_layers):
         if rms_norm:
             params += [[rms_norm_params(input_dim),attention_head_params(k_dim, input_dim ,keys[k], scale = scale),rms_norm_params(input_dim)]]
-            params += [[rms_norm_params(input_dim),attention_head_params(k_dim, input_dim ,keys[k], scale = scale)]]
+            # params += [[rms_norm_params(input_dim),attention_head_params(k_dim, input_dim ,keys[k], scale = scale)]]
+            # params += [[attention_head_params(k_dim, input_dim ,keys[k], scale = scale),rms_norm_params(input_dim)]]
         else:
             params += [attention_head_params(k_dim, input_dim ,keys[k], scale = scale)]
 
@@ -115,9 +116,20 @@ def forward(params, inputs,rope = False, base = 10000, act = "silu", rms_norm = 
 
     if rms_norm:
          for l in range(len(params)-4):
+            # before
+            # residual = x
+            # x = apply_rms_norm(x,params[l][0])
+            # x = residual + attention_head(params[l][1],x,mask=mask,rope = rope, base = base)
+            # after
+            # residual = x
+            # x = residual + attention_head(params[l][0],x,mask=mask,rope = rope, base = base)
+            # x = apply_rms_norm(x,params[l][1])
+            # all
+            residual = x
             x = apply_rms_norm(x,params[l][0])
-            x = x + attention_head(params[l][1],x,mask=mask,rope = rope, base = base)
+            x = residual + attention_head(params[l][1],x,mask=mask,rope = rope, base = base)
             x = apply_rms_norm(x,params[l][2])
+            
     else:    
         for l in range(len(params)-4):
             x = x + attention_head(params[l],x,mask=mask,rope = rope, base = base)
@@ -161,6 +173,17 @@ def update(params, x, y, lr = 1e-1, w_decay = 1e-6, rope = False, base = 10000, 
     #     params2 += [[(1-w_decay)*params[p][q] - lr*grads[p][q] for q in range(len(params[p]))]]
         
     for p in range(len(params)):
+        # before 
+        # if p < len(params)-4 and rms_norm:
+        #     rms_before = (1-w_decay)*params[p][0] - lr*grads[p][0]
+        #     attn = [(1-w_decay)*params[p][1][r] - lr*grads[p][1][r] for r in range(len(params[p][1]))]
+        #     params2 += [[rms_before,attn]]
+        # after 
+        # if p < len(params)-4 and rms_norm:
+        #     attn = [(1-w_decay)*params[p][0][r] - lr*grads[p][0][r] for r in range(len(params[p][0]))]
+        #     rms_after = (1-w_decay)*params[p][1] - lr*grads[p][1]
+        #     params2 += [[attn,rms_after]]
+        # all
         if len(params[p]) == 3 and rms_norm:
             rms_before = (1-w_decay)*params[p][0] - lr*grads[p][0]
             rms_after = (1-w_decay)*params[p][2] - lr*grads[p][2]

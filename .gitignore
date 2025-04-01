@@ -3,3 +3,8 @@ outs/*
 wandb/*
 *.sh
 *.npz
+test.ipynb
+visualize_layer6.ipynb
+visualize.ipynb
+RoPE.py
+model.py
