@@ -74,7 +74,7 @@ def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, tes
         
 if __name__ == "__main__":
     # Set up CUDA and random seeds
-    device = torch.device(f"cuda:{int(sys.argv[16])}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{int(sys.argv[17])}" if torch.cuda.is_available() else "cpu")
     SEED = int(sys.argv[17])
     torch.manual_seed(SEED)
     np.random.seed(SEED)
