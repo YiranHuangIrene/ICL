@@ -75,7 +75,7 @@ def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, tes
 if __name__ == "__main__":
     # Set up CUDA and random seeds
     device = torch.device(f"cuda:{int(sys.argv[16])}" if torch.cuda.is_available() else "cpu")
-    SEED = int(sys.argv[14])
+    SEED = int(sys.argv[17])
     torch.manual_seed(SEED)
     np.random.seed(SEED)
     torch.backends.cudnn.deterministic = True
@@ -105,10 +105,10 @@ if __name__ == "__main__":
 
     # Training parameters
     niters = 150000  # Number of iterations
-    batch_size = 128  # Batch size
+    batch_size = int(sys.argv[15])
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
-    optimizer = sys.argv[15]
+    optimizer = sys.argv[16]
     print_every = 1000  # Print every n iterations
     ckpt_store_freq = 1000 # Store every n iterations
 

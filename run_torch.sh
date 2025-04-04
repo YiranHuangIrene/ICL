@@ -17,10 +17,11 @@ n_heads=1  # Number of attention heads
 n_layers=2 # Number of transformer layers
 rope_theta=10000  # Rope base
 rms_norm=1 # Whether to use RMS normalization
+batch_size=256
 optimizer=SGD
 device=0
 
 
 # Example
 # python3 main.py ${K} ${N} ${D} ${L} ${alpha} ${B} ${p_B} ${p_C} ${eps} ${no_repeats} ${n_heads} ${n_layers} ${rope_theta} ${rms_norm} ${optimizer} ${device}
-python3 main.py ${K} ${N} ${D} ${L} ${alpha} ${B} ${p_B} ${p_C} ${eps} ${no_repeats} ${n_heads} ${n_layers} ${rope_theta} ${rms_norm} ${optimizer} ${device} &
+python3 main.py ${K} ${N} ${D} ${L} ${alpha} ${B} ${p_B} ${p_C} ${eps} ${no_repeats} ${n_heads} ${n_layers} ${rope_theta} ${rms_norm} ${batch_size} ${optimizer} ${device} &
