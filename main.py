@@ -6,7 +6,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from model import ModelArgs, Transformer
-from dataset import ICLDataset
+from dataset import ICLDataset, get_mus_label_class
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -48,6 +48,7 @@ def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, tes
         # Forward pass
         outputs = model(inputs)
         loss = loss_criterion(outputs, labels)
+        acc = accuracy(outputs, labels)
         
         # Backward pass
         loss.backward()
@@ -67,9 +68,9 @@ def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, tes
             loss_ic, acc_ic = evaluate(model, test_ic_loader, flip_labels=False, device=device)
             loss_ic2, acc_ic2 = evaluate(model, test_ic2_loader, flip_labels=True, device=device)
             loss_iw, acc_iw = evaluate(model, test_iw_loader, flip_labels=False, device=device)
-            print(f"Iteration {n}: Train loss: {loss:.4f}, Test loss: {loss_test:.4f}, Test acc: {acc_test:.4f}, IC loss: {loss_ic:.4f}, IC acc: {acc_ic:.4f}, IC2 loss: {loss_ic2:.4f}, IC2 acc: {acc_ic2:.4f}, IW loss: {loss_iw:.4f}, IW acc: {acc_iw:.4f}")
+            print(f"Iteration {n}: Train loss: {loss:.4f}, Train acc: {acc:.4f}, Test loss: {loss_test:.4f}, Test acc: {acc_test:.4f}, IC loss: {loss_ic:.4f}, IC acc: {acc_ic:.4f}, IC2 loss: {loss_ic2:.4f}, IC2 acc: {acc_ic2:.4f}, IW loss: {loss_iw:.4f}, IW acc: {acc_iw:.4f}")
             if WANDB:
-                wandb.log({"Iteration": n, "Train_Loss": loss, "Test_Loss": loss_test, "Test_Accuracy": acc_test, "IC_Loss": loss_ic, "IC_Accuracy": acc_ic, "IC2_Loss": loss_ic2, "IC2_Accuracy": acc_ic2, "IW_Loss": loss_iw, "IW_Accuracy": acc_iw})
+                wandb.log({"Iteration": n, "Train_Loss": loss, "Train_Accuracy": acc, "Test_Loss": loss_test, "Test_Accuracy": acc_test, "IC_Loss": loss_ic, "IC_Accuracy": acc_ic, "IC2_Loss": loss_ic2, "IC2_Accuracy": acc_ic2, "IW_Loss": loss_iw, "IW_Accuracy": acc_iw})
 
         
 if __name__ == "__main__":
@@ -109,7 +110,7 @@ if __name__ == "__main__":
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
     optimizer = sys.argv[16]
-    print_every = 1000  # Print every n iterations
+    print_every = 100  # Print every n iterations
     ckpt_store_freq = 1000 # Store every n iterations
 
     # Initialize wandb
@@ -167,33 +168,39 @@ if __name__ == "__main__":
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     # Initialize datasets
+    mus_label, mus_class, labels_class = get_mus_label_class(K, L, D)
     train_dataset = ICLDataset(
-        K=K, L=L, N=N, D=D, S=batch_size, Nmax=Nmax,
+        mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
+        N=N, S=batch_size, Nmax=Nmax,
         eps=eps, B=B, p_B=p_B, p_C=p_C, P=P, datasize=niters,
         no_repeats=no_repeats, rope=True
     )
 
     test_dataset = ICLDataset(
-        K=K, L=L, N=N, D=D, S=S, Nmax=Nmax,
+        mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
+        N=N, S=S, Nmax=Nmax,
         eps=eps, B=B, p_B=p_B, p_C=p_C, P=P, datasize=1,
         no_repeats=no_repeats, rope=True
     )
     test_dataset = [sample for sample in test_dataset]
 
     test_ic_dataset = ICLDataset(
-        K=K, L=L, N=N, D=D, S=S, Nmax=Nmax,
+        mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
+        N=N, S=S, Nmax=Nmax,
         eps=eps, B=B, p_B=1, p_C=1, P=P, datasize=1,        
         no_repeats=no_repeats, rope=True
     )
     test_ic_dataset = [sample for sample in test_ic_dataset]
     test_ic2_dataset = ICLDataset(
-        K=K, L=L, N=N, D=D, S=S, Nmax=Nmax,
+        mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
+        N=N, S=S, Nmax=Nmax,
         eps=eps, B=B, p_B=1, p_C=0, P=P, datasize=1,        
         flip_labels=True, no_repeats=no_repeats, rope=True
     )
     test_ic2_dataset = [sample for sample in test_ic2_dataset]
     test_iw_dataset = ICLDataset(
-        K=K, L=L, N=N, D=D, S=S, Nmax=Nmax,
+        mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
+        N=N, S=S, Nmax=Nmax,
         eps=eps, B=0, p_B=0, p_C=0, P=P, datasize=1,        
         no_repeats=no_repeats, rope=True
     )

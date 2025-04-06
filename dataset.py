@@ -17,10 +17,10 @@ def get_mus_label_class(K, L, D):
 class ICLDataset(IterableDataset):
     def __init__(
         self,
-        K: int,  # Number of classes
-        L: int,  # Number of labels
+        mus_label: np.ndarray,
+        mus_class: np.ndarray,
+        labels_class: np.ndarray,
         N: int,  # Number of item-label pairs in context
-        D: int,  # Feature dimension
         S: int,  # Number of sequences
         Nmax: int,  # Maximum context length
         eps: float = 0.1,  # Within-class variance
@@ -36,27 +36,13 @@ class ICLDataset(IterableDataset):
         seq_labels: bool = False,  # Whether to output sequence labels
     ):
         super().__init__()
-        if S <= 0:
-            raise ValueError("S must be positive")
-        if N <= 0:
-            raise ValueError("N must be positive")
-        if Nmax < N:
-            raise ValueError("Nmax must be greater than or equal to N")
-        if B > 0 and N % B != 0:
-            raise ValueError("N must be divisible by B when B > 0")
-        if B >= N:
-            raise ValueError("B must be less than N")
-        if not (0 <= p_B <= 1):
-            raise ValueError("p_B must be between 0 and 1")
-        if not (0 <= p_C <= 1):
-            raise ValueError("p_C must be between 0 and 1")
-        if eps <= 0:
-            raise ValueError("eps must be positive")
-            
-        self.K = K
-        self.L = L
+        self.L = mus_label.shape[0]
+        self.K = mus_class.shape[0]
+        self.D = mus_label.shape[1]
+        self.mus_label = mus_label
+        self.mus_class = mus_class
+        self.labels_class = labels_class
         self.N = N
-        self.D = D
         self.S = S
         self.Nmax = Nmax
         self.eps = eps
@@ -71,30 +57,28 @@ class ICLDataset(IterableDataset):
         self.datasize = datasize
         self.n_samples = 0
         
-        # Generate embeddings
-        self.mus_label, self.mus_class, self.labels_class = get_mus_label_class(K, L, D)
-        
-        # Set up class distribution
-        if P is None or len(P) != K:
-            self.P = np.ones(K)/K
+        # Set up class distribution if not provided
+        if P is None or len(P) != self.K:
+            self.P = np.ones(self.K)/self.K
         else:
             self.P = P
             
         # Set up OOD class embeddings
         self.K_c = 128
-        self.mus_class_new = np.random.normal(size=(self.K_c, D))/np.sqrt(D)
-        self.labels_class_new = np.tile(np.arange(L), int(self.K_c/L))
+        self.mus_class_new = np.random.normal(size=(self.K_c, self.D))/np.sqrt(self.D)
+        self.labels_class_new = np.tile(np.arange(self.L), int(self.K_c/self.L))
         
         # Validate burstiness parameter
+        if B > 0 and N % B != 0:
+            raise ValueError("N must be divisible by B when B > 0")
+        if B >= N:
+            raise ValueError("B must be less than N")
         if B == 0:
             self.B = int(N/2)
             self.p_B = 0
 
     def generate_sequence(self):
         """Generate a single sequence"""
-        if self.S <= 0:
-            raise ValueError("Cannot generate sequence with S <= 0")
-            
         e_fac = 1/np.sqrt(1 + self.eps**2)
         
         if self.rope:
@@ -105,8 +89,6 @@ class ICLDataset(IterableDataset):
         inputs = np.zeros((self.S, 2*self.N + 1, input_dim))
         
         # Generate context items
-        if (self.B > 0 and self.N % self.B != 0) or self.B >= self.N:
-            raise ValueError("N is not divisible by B or N/B is not even or B >= N")
         n_bursts = int(self.N/self.B)
         choices = np.zeros((self.S, n_bursts), dtype=int)
         if self.no_repeats:
