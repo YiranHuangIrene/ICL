@@ -4,8 +4,8 @@ import jax.numpy as jnp
 from jax import grad, jit, vmap
 from jax import random
 from jax.nn import relu
-from transformer_v2 import *
-from datasets_v2 import *
+from model_jax import *
+from dataset_jax import *
 import sys
 import os
 import time

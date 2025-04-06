@@ -110,7 +110,7 @@ if __name__ == "__main__":
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
     optimizer = sys.argv[16]
-    print_every = 100  # Print every n iterations
+    print_every = 1000  # Print every n iterations
     ckpt_store_freq = 1000 # Store every n iterations
 
     # Initialize wandb
