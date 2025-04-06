@@ -128,6 +128,8 @@ def forward(params, inputs,rope = False, base = 10000, act = "silu", rms_norm = 
             # x = residual + attention_head(params[l][0],x,mask=mask,rope = rope, base = base)
             # x = apply_rms_norm(x,params[l][1])
             # all
+            # TODO: Doesn't make sense to apply rms norm both before and after the attention layer because
+            #  for the output of the attention head, rms norm is applied twice, i.e. once before and once after.
             residual = x
             x = apply_rms_norm(x,params[l][0])
             x = residual + attention_head(params[l][1],x,mask=mask,rope = rope, base = base)
