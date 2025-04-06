@@ -4,7 +4,6 @@ import time
 import wandb
 import torch
 import numpy as np
-from tqdm import tqdm
 from model import ModelArgs, Transformer
 from dataset import ICLDataset, get_mus_label_class
 from torch.utils.data import DataLoader
@@ -207,11 +206,11 @@ if __name__ == "__main__":
     test_iw_dataset = [sample for sample in test_iw_dataset]
     
     # Load the datasets with dataloader
-    train_loader = DataLoader(train_dataset, batch_size=None)
-    test_loader = DataLoader(test_dataset, batch_size=None)
-    test_ic_loader = DataLoader(test_ic_dataset, batch_size=None)
-    test_ic2_loader = DataLoader(test_ic2_dataset, batch_size=None)
-    test_iw_loader = DataLoader(test_iw_dataset, batch_size=None)
+    train_loader = DataLoader(train_dataset, batch_size=None,num_workers=1)
+    test_loader = DataLoader(test_dataset, batch_size=None,num_workers=1)
+    test_ic_loader = DataLoader(test_ic_dataset, batch_size=None,num_workers=1)
+    test_ic2_loader = DataLoader(test_ic2_dataset, batch_size=None,num_workers=1)
+    test_iw_loader = DataLoader(test_iw_dataset, batch_size=None,num_workers=1)
 
     
     train(model=model, train_loader=train_loader, test_loader=test_loader, test_ic_loader=test_ic_loader, test_ic2_loader=test_ic2_loader, test_iw_loader=test_iw_loader, optimizer=optimizer, device=device, print_every=print_every, ckpt_store_freq=ckpt_store_freq, prefix=prefix, niters=niters)
