@@ -5,7 +5,7 @@ export CUDA_VISIBLE_DEVICES=0
 
 K=1024  # Number of classes
 N=8  # Number of item-label pairs in the context
-D=64  # Feature dimension
+D=128  # Feature dimension
 L=32  # Number of labels
 alpha=0  # Zipf's law exponent
 B=1 # Burstiness
@@ -17,11 +17,11 @@ n_heads=1  # Number of attention heads
 n_layers=2 # Number of transformer layers
 rope_theta=10000  # Rope base
 rms_norm=1 # Whether to use RMS normalization
-batch_size=256
+batch_size=128
 optimizer=SGD
 device=0
 
 
 # Example
-# python3 main.py ${K} ${N} ${D} ${L} ${alpha} ${B} ${p_B} ${p_C} ${eps} ${no_repeats} ${n_heads} ${n_layers} ${rope_theta} ${rms_norm} ${optimizer} ${device}
+# python3 main.py ${K} ${N} ${D} ${L} ${alpha} ${B} ${p_B} ${p_C} ${eps} ${no_repeats} ${n_heads} ${n_layers} ${rope_theta} ${rms_norm} ${optimizer} ${device}z
 python3 main.py ${K} ${N} ${D} ${L} ${alpha} ${B} ${p_B} ${p_C} ${eps} ${no_repeats} ${n_heads} ${n_layers} ${rope_theta} ${rms_norm} ${batch_size} ${optimizer} ${device} &
