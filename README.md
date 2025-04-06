@@ -54,6 +54,6 @@ Results are stored in:
 
 ## Notes
 
-- The PyTorch implementation (`main.py`) is the current active codebase
-- The JAX implementation (`main_jax.py`) is maintained for reference
+- The PyTorch implementation (`main.py`) is the current active codebase, WANDB report see: https://wandb.ai/explainableml/ICL_torch/reports/Results---VmlldzoxMjE1Mjk0Nw?accessToken=l7pw9osgk32n02dgt2ysd8dr12mfmpb6v8pblg6gn54ph7ywxbu7kdgk1bq57r6m
+- The JAX implementation (`main_jax.py`) is maintained for reference, WANDB report see: https://api.wandb.ai/links/explainableml/iawqfvdf
 - WandB integration is available for experiment tracking (set `WANDB = True` in main.py)
