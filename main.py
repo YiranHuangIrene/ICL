@@ -33,49 +33,50 @@ def evaluate(model, dataloader, flip_labels=False, device=None):
             acc = accuracy(outputs, labels, flip_labels=flip_labels)
         return loss, acc
 
-def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, test_iw_loader, optimizer, device, print_every, ckpt_store_freq, prefix, niters):
+def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, test_iw_loader, optimizer, device, print_every, ckpt_store_freq, prefix, niters, n_epochs):
     model.to(device)
     loss_criterion = torch.nn.CrossEntropyLoss()
-    for n, batch in tqdm(enumerate(train_loader), total=niters):
-        model.train()
-        inputs, labels = batch
-        inputs = inputs.to(device)
-        labels = labels.to(device)
-        
-        optimizer.zero_grad()
-        
-        # Forward pass
-        outputs = model(inputs)
-        loss = loss_criterion(outputs, labels)
-        acc = accuracy(outputs, labels)
-        
-        # Backward pass
-        loss.backward()
-        optimizer.step()
-        
-        # Save checkpoint
-        if n%ckpt_store_freq==0 and n!=0:
-            if not os.path.exists(prefix):
-                os.makedirs(prefix)
-            if not os.path.exists(f"{prefix}/seed_{SEED}"):
-                os.makedirs(f"{prefix}/seed_{SEED}")
-            torch.save(model.state_dict(), f"{prefix}/seed_{SEED}/ckpt_{n}.pt")
+    for epoch in range(n_epochs):
+        for n, batch in tqdm(enumerate(train_loader), total=niters):
+            model.train()
+            inputs, labels = batch
+            inputs = inputs.to(device)
+            labels = labels.to(device)
             
-        # Evaluate  
-        if n%print_every==0:
-            loss_test, acc_test = evaluate(model, test_loader, flip_labels=False, device=device)
-            loss_ic, acc_ic = evaluate(model, test_ic_loader, flip_labels=False, device=device)
-            loss_ic2, acc_ic2 = evaluate(model, test_ic2_loader, flip_labels=True, device=device)
-            loss_iw, acc_iw = evaluate(model, test_iw_loader, flip_labels=False, device=device)
-            print(f"Iteration {n}: Train loss: {loss:.4f}, Train acc: {acc:.4f}, Test loss: {loss_test:.4f}, Test acc: {acc_test:.4f}, IC loss: {loss_ic:.4f}, IC acc: {acc_ic:.4f}, IC2 loss: {loss_ic2:.4f}, IC2 acc: {acc_ic2:.4f}, IW loss: {loss_iw:.4f}, IW acc: {acc_iw:.4f}")
-            if WANDB:
-                wandb.log({"Iteration": n, "Train_Loss": loss, "Train_Accuracy": acc, "Test_Loss": loss_test, "Test_Accuracy": acc_test, "IC_Loss": loss_ic, "IC_Accuracy": acc_ic, "IC2_Loss": loss_ic2, "IC2_Accuracy": acc_ic2, "IW_Loss": loss_iw, "IW_Accuracy": acc_iw})
+            optimizer.zero_grad()
+            
+            # Forward pass
+            outputs = model(inputs)
+            loss = loss_criterion(outputs, labels)
+            acc = accuracy(outputs, labels)
+            
+            # Backward pass
+            loss.backward()
+            optimizer.step()
+            
+            # Save checkpoint
+            if n%ckpt_store_freq==0 and n!=0:
+                if not os.path.exists(prefix):
+                    os.makedirs(prefix)
+                if not os.path.exists(f"{prefix}/seed_{SEED}"):
+                    os.makedirs(f"{prefix}/seed_{SEED}")
+                torch.save(model.state_dict(), f"{prefix}/seed_{SEED}/ckpt_{n}.pt")
+                
+            # Evaluate  
+            if n%print_every==0:
+                loss_test, acc_test = evaluate(model, test_loader, flip_labels=False, device=device)
+                loss_ic, acc_ic = evaluate(model, test_ic_loader, flip_labels=False, device=device)
+                loss_ic2, acc_ic2 = evaluate(model, test_ic2_loader, flip_labels=True, device=device)
+                loss_iw, acc_iw = evaluate(model, test_iw_loader, flip_labels=False, device=device)
+                print(f"Iteration {n}: Train loss: {loss:.4f}, Train acc: {acc:.4f}, Test loss: {loss_test:.4f}, Test acc: {acc_test:.4f}, IC loss: {loss_ic:.4f}, IC acc: {acc_ic:.4f}, IC2 loss: {loss_ic2:.4f}, IC2 acc: {acc_ic2:.4f}, IW loss: {loss_iw:.4f}, IW acc: {acc_iw:.4f}")
+                if WANDB:
+                    wandb.log({"Iteration": n, "Train_Loss": loss, "Train_Accuracy": acc, "Test_Loss": loss_test, "Test_Accuracy": acc_test, "IC_Loss": loss_ic, "IC_Accuracy": acc_ic, "IC2_Loss": loss_ic2, "IC2_Accuracy": acc_ic2, "IW_Loss": loss_iw, "IW_Accuracy": acc_iw})
 
         
 if __name__ == "__main__":
     # Set up CUDA and random seeds
-    device = torch.device(f"cuda:{int(sys.argv[17])}" if torch.cuda.is_available() else "cpu")
-    SEED = int(sys.argv[17])
+    device = torch.device(f"cuda:{int(sys.argv[18])}" if torch.cuda.is_available() else "cpu")
+    SEED = int(sys.argv[18])
     torch.manual_seed(SEED)
     np.random.seed(SEED)
     torch.backends.cudnn.deterministic = True
@@ -100,20 +101,27 @@ if __name__ == "__main__":
     # Model Parameters
     n_heads = int(sys.argv[11])  # Number of attention heads
     n_layers = int(sys.argv[12])  # Number of transformer layers
-    rope_theta = int(sys.argv[13])  # Rope base
-    rms_norm = bool(int(sys.argv[14])) # Whether to use RMS normalization
+    rope = bool(int(sys.argv[13]))  # Whether to use RoPE
+    rope_theta = int(sys.argv[14])  # Rope base
+    rms_norm = bool(int(sys.argv[15])) # Whether to use RMS normalization
 
     # Training parameters
-    niters = 150000  # Number of iterations
-    batch_size = int(sys.argv[15])
+    niters = 300000  # Number of iterations
+    n_epochs = 1
+    batch_size = int(sys.argv[16])
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
-    optimizer = sys.argv[16]
+    optimizer = sys.argv[17]
     print_every = 1000  # Print every n iterations
-    ckpt_store_freq = 1000 # Store every n iterations
+    ckpt_store_freq = 50000 # Store every n iterations
 
+    if rope:
+        input_dim = D
+    else:
+        input_dim = 2*Nmax + 1 + D
+    
     # Initialize wandb
-    prefix = f"./outs_torch/K{K}_N{N}_D{D}_alpha{alpha}_B{B}_pB{p_B}_pC{p_C}_eps{eps}_no_repeats{no_repeats}_rope_theta{rope_theta}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}"
+    prefix = f"./outs_torch/K{K}_N{N}_D{D}_alpha{alpha}_B{B}_pB{p_B}_pC{p_C}_eps{eps}_no_repeats{no_repeats}_rope{rope}_rope_theta{rope_theta}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}_niters{niters}"
     if WANDB:
         wandb.init(project="ICL_torch",
                 name=f"run_{SEED}_{prefix.split('/')[-1]}",
@@ -130,6 +138,7 @@ if __name__ == "__main__":
                     "pC": p_C,
                     "eps": eps,
                     "no_repeats": no_repeats,
+                    "rope": rope,
                     "rope_theta": rope_theta,
                     "n_heads": n_heads,
                     "n_layers": n_layers,
@@ -144,7 +153,7 @@ if __name__ == "__main__":
 
     # Initialize model
     model_args = ModelArgs(
-        dim=D,
+        dim=input_dim,
         n_layers=n_layers,
         n_heads=n_heads,
         n_labels=L,
@@ -152,6 +161,7 @@ if __name__ == "__main__":
         rope_theta=rope_theta,
         mlp_bias=True,
         rms_norm=rms_norm,
+        rope=rope,
         norm_eps=1e-5
     )
     model = Transformer(model_args)
@@ -172,14 +182,14 @@ if __name__ == "__main__":
         mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
         N=N, S=batch_size, Nmax=Nmax,
         eps=eps, B=B, p_B=p_B, p_C=p_C, P=P, datasize=niters,
-        no_repeats=no_repeats, rope=True
+        no_repeats=no_repeats, rope=rope
     )
 
     test_dataset = ICLDataset(
         mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
         N=N, S=S, Nmax=Nmax,
         eps=eps, B=B, p_B=p_B, p_C=p_C, P=P, datasize=1,
-        no_repeats=no_repeats, rope=True
+        no_repeats=no_repeats, rope=rope
     )
     test_dataset = [sample for sample in test_dataset]
 
@@ -187,21 +197,21 @@ if __name__ == "__main__":
         mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
         N=N, S=S, Nmax=Nmax,
         eps=eps, B=B, p_B=1, p_C=1, P=P, datasize=1,        
-        no_repeats=no_repeats, rope=True
+        no_repeats=no_repeats, rope=rope
     )
     test_ic_dataset = [sample for sample in test_ic_dataset]
     test_ic2_dataset = ICLDataset(
         mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
         N=N, S=S, Nmax=Nmax,
         eps=eps, B=B, p_B=1, p_C=0, P=P, datasize=1,        
-        flip_labels=True, no_repeats=no_repeats, rope=True
+        flip_labels=True, no_repeats=no_repeats, rope=rope
     )
     test_ic2_dataset = [sample for sample in test_ic2_dataset]
     test_iw_dataset = ICLDataset(
         mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
         N=N, S=S, Nmax=Nmax,
         eps=eps, B=0, p_B=0, p_C=0, P=P, datasize=1,        
-        no_repeats=no_repeats, rope=True
+        no_repeats=no_repeats, rope=rope
     )
     test_iw_dataset = [sample for sample in test_iw_dataset]
     

@@ -16,6 +16,7 @@ class ModelArgs:
     n_heads: int = 1
     n_labels: int = 16
     rms_norm: bool = True
+    rope: bool = True
     norm_eps: float = 1e-5
     max_position_embeddings: int = 20
     rope_theta: float = 10000
@@ -105,6 +106,7 @@ class MLP(nn.Module):
 class Attention(nn.Module):
     def __init__(self, args: ModelArgs):
         super().__init__()
+        self.args = args
         self.dim = args.dim
         self.n_heads = args.n_heads
         self.head_dim = self.dim // self.n_heads
@@ -114,7 +116,8 @@ class Attention(nn.Module):
         self.wv = nn.Linear(self.dim, self.dim, bias = False)
         if self.n_heads > 1:
             self.wo = nn.Linear(self.dim, self.dim, bias = False)
-        self.rotary_emb = RotaryEmbedding(self.head_dim, max_position_embeddings=args.max_position_embeddings, base=args.rope_theta)
+        if args.rope:
+            self.rotary_emb = RotaryEmbedding(self.head_dim, max_position_embeddings=args.max_position_embeddings, base=args.rope_theta)
         self._init_weights()
         
     def _init_weights(self):
@@ -129,9 +132,10 @@ class Attention(nn.Module):
         queries = xq.view(bsz, seqlen, self.n_heads, self.head_dim).transpose(1, 2)  # (bsz, n_heads, seqlen, head_dim)
         keys = xk.view(bsz, seqlen, self.n_heads, self.head_dim).transpose(1, 2)
         values = xv.view(bsz, seqlen, self.n_heads, self.head_dim).transpose(1, 2)
-        # Apply RoPE
-        cos, sin = self.rotary_emb(values, seq_len=seqlen)
-        queries, keys = apply_rotary_pos_emb(queries, keys, cos, sin)
+        if self.args.rope:
+            # Apply RoPE
+            cos, sin = self.rotary_emb(values, seq_len=seqlen)
+            queries, keys = apply_rotary_pos_emb(queries, keys, cos, sin)
         
         attn_weights = torch.matmul(queries, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
         attn_weights = attn_weights + mask
@@ -159,14 +163,25 @@ class TransformerBlock(nn.Module):
             self.attn_norm = RMSNorm(self.dim, args.norm_eps)
             self.mlp_norm = RMSNorm(self.dim, args.norm_eps)
         
-    def forward(self, x: torch.Tensor, mask: torch.Tensor):
-        if self.args.rms_norm:  
-            hidden_states = x + self.attn(self.attn_norm(x), mask)
-            out = hidden_states + self.mlp(self.mlp_norm(hidden_states))
+    def forward(self, x: torch.Tensor, mask: torch.Tensor, output_attn_weights: bool = False):
+        if output_attn_weights:
+            if self.args.rms_norm:  
+                hidden_states , attn_weights = self.attn(self.attn_norm(x), mask, output_attn_weights)
+                hidden_states = x + hidden_states 
+                out = hidden_states + self.mlp(self.mlp_norm(hidden_states))
+            else:
+                hidden_states,  attn_weights = self.attn(x, mask, output_attn_weights)
+                hidden_states = x + hidden_states 
+                out = hidden_states  + self.mlp(hidden_states)
+            return out, attn_weights
         else:
-            hidden_states = x + self.attn(x, mask)
-            out = hidden_states + self.mlp(hidden_states)
-        return out
+            if self.args.rms_norm:  
+                hidden_states = x + self.attn(self.attn_norm(x), mask)
+                out = hidden_states + self.mlp(self.mlp_norm(hidden_states))
+            else:
+                hidden_states = x + self.attn(x, mask)
+                out = hidden_states + self.mlp(hidden_states)
+            return out
     
 
 class Transformer(nn.Module):
@@ -185,15 +200,24 @@ class Transformer(nn.Module):
     def _init_weights(self):
         nn.init.normal_(self.out.weight, mean=0.0, std=0.02)
         
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, output_attn_weights: bool = False):
         bsz, seqlen, _ = x.shape
         mask = torch.full((seqlen, seqlen), float("-inf"), device=x.device)
         mask = torch.triu(mask, diagonal=1)
+        if output_attn_weights:
+            attn_weights = []
         for layer in self.layers:
-            x = layer(x, mask)
+            if output_attn_weights:
+                x, attn_weight = layer(x, mask, output_attn_weights)
+                attn_weights.append(attn_weight)
+            else:
+                x = layer(x, mask)
         if self.args.rms_norm:
             x = self.norm(x)
         # Take the last token and feed it to the output layer
         x = self.out(x[:, -1, :])
-        return x
+        if output_attn_weights:
+            return x, attn_weights
+        else:
+            return x
 
