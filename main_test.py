@@ -5,11 +5,10 @@ import wandb
 import torch
 import numpy as np
 from model import ModelArgs, Transformer
-from dataset import ICLDataset, get_mus_label_class
+from dataset import ICLDataset, get_mus_label_class, generate_input_seqs
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from tqdm import tqdm
-
 WANDB = True
 
 def accuracy(outputs, labels, flip_labels=False):
@@ -21,25 +20,28 @@ def accuracy(outputs, labels, flip_labels=False):
     return (predictions_inds == labels_inds).float().mean()
 
 
-def evaluate(model, dataloader, flip_labels=False, device=None):
+def evaluate(model, data, flip_labels=False, device=None):
     model.eval()
     loss_criterion = torch.nn.CrossEntropyLoss()
     with torch.no_grad():
-        for inputs, labels in dataloader:
-            inputs = inputs.to(device)
-            labels = labels.to(device)
-            outputs = model(inputs)
-            loss = loss_criterion(outputs, labels)
-            acc = accuracy(outputs, labels, flip_labels=flip_labels)
+        inputs, labels = data
+        inputs = inputs.to(device)
+        labels = labels.to(device)
+        outputs = model(inputs)
+        loss = loss_criterion(outputs, labels)
+        acc = accuracy(outputs, labels, flip_labels=flip_labels)
         return loss, acc
 
-def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, test_iw_loader, optimizer, device, print_every, ckpt_store_freq, prefix, niters, n_epochs):
+def train(model,batch_size,train_data,test_data, test_ic_data, test_ic2_data, test_iw_data, optimizer, device, print_every, ckpt_store_freq, prefix, niters, n_epochs):
     model.to(device)
     loss_criterion = torch.nn.CrossEntropyLoss()
+    # for n, batch in tqdm(enumerate(train_loader), total=niters):
+    global_iter = 0
     for epoch in range(n_epochs):
-        for n, batch in tqdm(enumerate(train_loader), total=niters):
+        print(f"Epoch {epoch}")
+        for n in tqdm(range(niters)):
+            inputs, labels = train_data[0][batch_size*n:batch_size*(n+1)], train_data[1][batch_size*n:batch_size*(n+1)]
             model.train()
-            inputs, labels = batch
             inputs = inputs.to(device)
             labels = labels.to(device)
             
@@ -55,22 +57,23 @@ def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, tes
             optimizer.step()
             
             # Save checkpoint
-            if n%ckpt_store_freq==0 and n!=0:
+            if global_iter%ckpt_store_freq==0 and global_iter!=0:
                 if not os.path.exists(prefix):
                     os.makedirs(prefix)
                 if not os.path.exists(f"{prefix}/seed_{SEED}"):
                     os.makedirs(f"{prefix}/seed_{SEED}")
-                torch.save(model.state_dict(), f"{prefix}/seed_{SEED}/ckpt_{n}.pt")
+                torch.save(model.state_dict(), f"{prefix}/seed_{SEED}/ckpt_{global_iter}.pt")
                 
             # Evaluate  
-            if n%print_every==0:
-                loss_test, acc_test = evaluate(model, test_loader, flip_labels=False, device=device)
-                loss_ic, acc_ic = evaluate(model, test_ic_loader, flip_labels=False, device=device)
-                loss_ic2, acc_ic2 = evaluate(model, test_ic2_loader, flip_labels=True, device=device)
-                loss_iw, acc_iw = evaluate(model, test_iw_loader, flip_labels=False, device=device)
-                print(f"Iteration {n}: Train loss: {loss:.4f}, Train acc: {acc:.4f}, Test loss: {loss_test:.4f}, Test acc: {acc_test:.4f}, IC loss: {loss_ic:.4f}, IC acc: {acc_ic:.4f}, IC2 loss: {loss_ic2:.4f}, IC2 acc: {acc_ic2:.4f}, IW loss: {loss_iw:.4f}, IW acc: {acc_iw:.4f}")
+            if global_iter%print_every==0:
+                loss_test, acc_test = evaluate(model, test_data, flip_labels=False, device=device)
+                loss_ic, acc_ic = evaluate(model, test_ic_data, flip_labels=False, device=device)
+                loss_ic2, acc_ic2 = evaluate(model, test_ic2_data, flip_labels=True, device=device)
+                loss_iw, acc_iw = evaluate(model, test_iw_data, flip_labels=False, device=device)
+                print(f"Epoch {epoch}, Iteration {n}: Train loss: {loss:.4f}, Train acc: {acc:.4f}, Test loss: {loss_test:.4f}, Test acc: {acc_test:.4f}, IC loss: {loss_ic:.4f}, IC acc: {acc_ic:.4f}, IC2 loss: {loss_ic2:.4f}, IC2 acc: {acc_ic2:.4f}, IW loss: {loss_iw:.4f}, IW acc: {acc_iw:.4f}")
                 if WANDB:
-                    wandb.log({"Iteration": n, "Train_Loss": loss, "Train_Accuracy": acc, "Test_Loss": loss_test, "Test_Accuracy": acc_test, "IC_Loss": loss_ic, "IC_Accuracy": acc_ic, "IC2_Loss": loss_ic2, "IC2_Accuracy": acc_ic2, "IW_Loss": loss_iw, "IW_Accuracy": acc_iw})
+                    wandb.log({"Epoch": epoch, "Iteration": n, "global_iter": global_iter, "Train_Loss": loss, "Train_Accuracy": acc, "Test_Loss": loss_test, "Test_Accuracy": acc_test, "IC_Loss": loss_ic, "IC_Accuracy": acc_ic, "IC2_Loss": loss_ic2, "IC2_Accuracy": acc_ic2, "IW_Loss": loss_iw, "IW_Accuracy": acc_iw})
+            global_iter += 1
 
         
 if __name__ == "__main__":
@@ -106,22 +109,22 @@ if __name__ == "__main__":
     rms_norm = bool(int(sys.argv[15])) # Whether to use RMS normalization
 
     # Training parameters
-    niters = 300000  # Number of iterations
-    n_epochs = 1
+    niters = 30000  # Number of iterations
+    n_epochs = 10  # Number of epochs
     batch_size = int(sys.argv[16])
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
     optimizer = sys.argv[17]
     print_every = 1000  # Print every n iterations
-    ckpt_store_freq = 50000 # Store every n iterations
+    ckpt_store_freq = 10000 # Store every n iterations
 
     if rope:
         input_dim = D
     else:
         input_dim = 2*Nmax + 1 + D
-    
-    # Initialize wandb
-    prefix = f"./outs_torch/K{K}_N{N}_D{D}_alpha{alpha}_B{B}_pB{p_B}_pC{p_C}_eps{eps}_no_repeats{no_repeats}_rope{rope}_rope_theta{rope_theta}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}_niters{niters}"
+        
+   # Initialize wandb
+    prefix = f"./outs_torch/K{K}_N{N}_D{D}_alpha{alpha}_B{B}_pB{p_B}_pC{p_C}_eps{eps}_no_repeats{no_repeats}_rope_theta{rope_theta}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}_niters{niters}_n_epochs{n_epochs}"
     if WANDB:
         wandb.init(project="ICL_torch",
                 name=f"run_{SEED}_{prefix.split('/')[-1]}",
@@ -148,7 +151,8 @@ if __name__ == "__main__":
                     "lr": lr,
                     "weight_decay": weight_decay,
                     "optimizer": optimizer,
-                    "seed": SEED
+                    "seed": SEED,
+                    "n_epochs": n_epochs
                 })
 
     # Initialize model
@@ -178,49 +182,13 @@ if __name__ == "__main__":
 
     # Initialize datasets
     mus_label, mus_class, labels_class = get_mus_label_class(K, L, D)
-    train_dataset = ICLDataset(
-        mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
-        N=N, S=batch_size, Nmax=Nmax,
-        eps=eps, B=B, p_B=p_B, p_C=p_C, P=P, datasize=niters,
-        no_repeats=no_repeats, rope=rope
-    )
-
-    test_dataset = ICLDataset(
-        mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
-        N=N, S=S, Nmax=Nmax,
-        eps=eps, B=B, p_B=p_B, p_C=p_C, P=P, datasize=1,
-        no_repeats=no_repeats, rope=rope
-    )
-    test_dataset = [sample for sample in test_dataset]
-
-    test_ic_dataset = ICLDataset(
-        mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
-        N=N, S=S, Nmax=Nmax,
-        eps=eps, B=B, p_B=1, p_C=1, P=P, datasize=1,        
-        no_repeats=no_repeats, rope=rope
-    )
-    test_ic_dataset = [sample for sample in test_ic_dataset]
-    test_ic2_dataset = ICLDataset(
-        mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
-        N=N, S=S, Nmax=Nmax,
-        eps=eps, B=B, p_B=1, p_C=0, P=P, datasize=1,        
-        flip_labels=True, no_repeats=no_repeats, rope=rope
-    )
-    test_ic2_dataset = [sample for sample in test_ic2_dataset]
-    test_iw_dataset = ICLDataset(
-        mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
-        N=N, S=S, Nmax=Nmax,
-        eps=eps, B=0, p_B=0, p_C=0, P=P, datasize=1,        
-        no_repeats=no_repeats, rope=rope
-    )
-    test_iw_dataset = [sample for sample in test_iw_dataset]
+    print("Generating training data...")
+    train_data = generate_input_seqs(mus_label,mus_class,labels_class,N,batch_size*niters, Nmax,eps = eps, B = B, p_B = p_B, P = P, p_C = p_C, no_repeats = no_repeats)
+    print("Generating test data...")
+    test_data  = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = p_B, p_C = p_C, no_repeats = no_repeats)
+    test_ic_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = 1, p_C = 1, no_repeats = no_repeats)
+    test_ic2_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = 1, p_C = 0, flip_labels = True, no_repeats = no_repeats)
+    test_iw_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = 0, p_B = 0, p_C = 0, no_repeats = no_repeats)
+    print("Training model...")
+    train(model=model, batch_size=batch_size,train_data=train_data,test_data=test_data, test_ic_data=test_ic_data, test_ic2_data=test_ic2_data, test_iw_data=test_iw_data, optimizer=optimizer, device=device, print_every=print_every, ckpt_store_freq=ckpt_store_freq, prefix=prefix, niters=niters, n_epochs=n_epochs)
     
-    # Load the datasets with dataloader
-    train_loader = DataLoader(train_dataset, batch_size=None,num_workers=1)
-    test_loader = DataLoader(test_dataset, batch_size=None,num_workers=1)
-    test_ic_loader = DataLoader(test_ic_dataset, batch_size=None,num_workers=1)
-    test_ic2_loader = DataLoader(test_ic2_dataset, batch_size=None,num_workers=1)
-    test_iw_loader = DataLoader(test_iw_dataset, batch_size=None,num_workers=1)
-
-    
-    train(model=model, train_loader=train_loader, test_loader=test_loader, test_ic_loader=test_ic_loader, test_ic2_loader=test_ic2_loader, test_iw_loader=test_iw_loader, optimizer=optimizer, device=device, print_every=print_every, ckpt_store_freq=ckpt_store_freq, prefix=prefix, niters=niters, n_epochs=n_epochs)

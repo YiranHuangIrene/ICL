@@ -14,6 +14,34 @@ def get_mus_label_class(K, L, D):
     
     return mus_label, mus_class, labels_class
 
+def get_mm_mus_label_class(K1,K2,L1,L2,D1,D2):
+    """
+    Generate label and class embeddings for two distributions
+    K1: number of classes for distribution 1
+    K2: number of classes for distribution 2
+    L1: number of labels for distribution 1
+    L2: number of labels for distribution 2 (The labels for distribution 2 is part of the labels for distribution 1)
+    D1: dimension of the label embeddings for distribution 1
+    D2: dimension of the label embeddings for distribution 2
+    """
+    mus_label_m1 = np.random.normal(size=(L1, D1))/np.sqrt(D1)
+    mus_label_m2 = mus_label_m1[:L2] # The labels for distribution 2 is part of the labels for distribution 1
+    mus_class_m1 = np.random.normal(size=(K1, D1))/np.sqrt(D1)
+    mus_class_m2 = np.random.normal(size=(K2, D2))/np.sqrt(D2)
+    
+    labels_class_m1 = np.tile(np.arange(L1), int(K1/L1))
+    labels_class_m2 = np.tile(np.arange(L2), int(K2/L2))
+    
+    # Create mapping from distribution 2 to distribution 1 classes with same labels
+    mapping_m2_to_m1 = {}
+    for k2 in range(K2):
+        label2 = labels_class_m2[k2]
+        # Find all classes in distribution 1 with matching label
+        matching_classes = np.where(labels_class_m1 == label2)[0]
+        # Store list of all matching class indices from distribution 1
+        mapping_m2_to_m1[k2] = matching_classes.tolist()
+    return mus_label_m1, mus_class_m1, labels_class_m1, mus_label_m2, mus_class_m2, labels_class_m2, mapping_m2_to_m1
+
 def generate_input_seqs(mus_label, mus_class, labels_class, N,S, Nmax, eps= 0.1, B = 0, p_B = 0, P = None, p_C = 0, flip_labels = False, output_target_labels = False, no_repeats = False, seq_labels = False, rope = True):
     e_fac = 1/np.sqrt(1+eps**2)
     
@@ -129,7 +157,134 @@ def generate_input_seqs(mus_label, mus_class, labels_class, N,S, Nmax, eps= 0.1,
         return torch.FloatTensor(inputs), torch.FloatTensor(labels), torch.LongTensor(target_classes)
     else:
         return torch.FloatTensor(inputs), torch.FloatTensor(labels)
+    
+def generate_input_seqs_mm(mus_label_m1, mus_class_m1, labels_class_m1, mus_label_m2, mus_class_m2, labels_class_m2, mapping_m2_to_m1, N,S, Nmax, eps1= 0.1, eps2 = 0.1, B= 0, p_B1 = 0, p_B2 = 0, P1 = None, P2 = None, p_C1 = 0, p_C2 = 0, flip_labels = False, output_target_labels = False, no_repeats = False, seq_labels = False, rope = True):
+    L1 = mus_label_m1.shape[0]
+    L2 = mus_label_m2.shape[0]
+    K1 = mus_class_m1.shape[0]
+    K2 = mus_class_m2.shape[0]
+    D1 = mus_label_m1.shape[1]
+    D2 = mus_label_m2.shape[1]
+    
+    # Check feature dimension based on position embeddings
+    if rope:
+        input_dim1 = D1
+    else:
+        input_dim1 = 3*Nmax+1 + D1 # 3*Nmax+1 is max item-label pairs (x1,x*1,l1), D1 is the feature dimension of the item embeddings
+    # Decide in final input dimension
+    inputs = np.zeros((S,3*N+1,input_dim1))
+    
+    # check parameters
+    if P1 is None or len(P1) != K1:
+        P1 = np.ones(K1)/K1
+    if P2 is None or len(P2) != K2:
+        P2 = np.ones(K2)/K2
+    if (B > 0 and N%B != 0) or B >= N:
+        print("N is not divisible by B or N/B is not even or B >= N")
+        return 0
+    if B == 0:
+        B = int(N/2)
+        p_B1 = 0
+        p_B2 = 0
+    
+    # Generate OOD classes for distribution 1 (modality 1, here means llm) and distribution 2 (modality 2, here means vision)
+    e_fac1 = 1/np.sqrt(1+eps1**2)
+    e_fac2 = 1/np.sqrt(1+eps2**2)
+    K_c1 = 128  
+    K_c2 = 128
+    mus_class_new1 = np.random.normal(size = (K_c1,D1))/np.sqrt(D1)
+    mus_class_new2 = np.random.normal(size = (K_c2,D2))/np.sqrt(D2)
+    if K_c1 < L1 or K_c1%L1 != 0:
+        print("K > L and K%L == 0 is required")
+        return 0
+    if K_c2 < L2 or K_c2%L2 != 0:
+        print("K > L and K%L == 0 is required")
+        return 0
+    labels_class_new1 =  np.tile(np.arange(L1),int(K_c1/L1))
+    labels_class_new2 =  np.tile(np.arange(L2),int(K_c2/L2))
+    mapping_m2_to_m1_new = {}
+    for k2 in range(K_c2):
+        label2 = labels_class_new2[k2]
+        matching_classes = np.where(labels_class_m1 == label2)[0]
+        mapping_m2_to_m1_new[k2] = matching_classes.tolist()
+ 
+    # Choose the context-item classes for distribution 2, then choose the context-item classes for distribution 1 with the same labels
+    choices_2 = np.zeros((S,int(N/B)), dtype = int)
+    if no_repeats:
+        for s in range(S):
+            label_choices = np.random.choice(np.arange(L2), size = (int(N/B)), replace = False)
+            pos_choices = np.random.choice(np.arange(int(K2/L2)), size = (int(N/B)))
+            choices_2[s] = pos_choices*L2 + label_choices
+    else:
+        choices_2 = np.random.choice(np.arange(K2), size = (S,int(N/B)))
+    choices_1 = np.zeros((S,int(N/B)), dtype = int)
+    for s in range(S):
+        choices = []
+        for k in choices_2[s]:
+            choices.append(np.random.choice(mapping_m2_to_m1[k]))
+        choices_1[s] = np.array(choices)
+    # Interleave choices_1 and choices_2 into alternating pattern (x1,y1,x2,y2,...)
+    choices = np.zeros((S, 2*int(N/B)), dtype=int)
+    choices[:,0::2] = choices_1  # Even indices get choices_1 
+    choices[:,1::2] = choices_2  # Odd indices get choices_2
 
+    choices = np.tile(choices,B)
+    # Shuffle choices pairwise (keeping x,y pairs together)
+    for s in range(S):
+        # Reshape into pairs, shuffle pairs, then flatten back
+        pairs = choices[s].reshape(-1, 2)  # Shape: (N/B, 2)
+        np.random.shuffle(pairs)  # Shuffle along first dimension
+        choices[s] = pairs.flatten()  # Back to 1D array
+    choices_1 = choices[:,0::2]
+    choices_2 = choices[:,1::2]
+    
+    # Select target from distribution 2
+    targets_ind = np.random.choice(np.arange(1, choices.shape[1], 2), size = (S,))
+    targets = choices[np.arange(choices.shape[0]),targets_ind]
+  
+    # Choose OOD context items classes for distribution 2 
+    choices_c2 = np.zeros((S,int(N/B)), dtype = int)
+    if no_repeats:
+        for s in range(S):
+            label_choices = np.random.choice(np.arange(L2), size = (int(N/B)), replace = False)
+            pos_choices = np.random.choice(np.arange(int(K_c2/L2)), size = (int(N/B)))
+            choices_c2[s] = pos_choices*L2 + label_choices
+    else:
+        choices_c2 = np.random.choice(np.arange(K_c2), size = (S,int(N/B)))
+    choices_c1 =np.zeros((S,int(N/B)), dtype = int)
+    for s in range(S):
+        choices_c = []
+        for k in choices_c2[s]:
+            choices_c.append(np.random.choice(mapping_m2_to_m1_new[k]))
+        choices_c1[s] = np.array(choices_c)
+    choices_c = np.zeros((S, 2*int(N/B)), dtype=int)
+    choices_c[:,0::2] = choices_c1  # Even indices get choices_c1 
+    choices_c[:,1::2] = choices_c2  # Odd indices get choices_c2
+    choices_c = np.tile(choices_c,B)
+    # Shuffle choices pairwise (keeping x,y pairs together)
+    for s in range(S):
+        # Reshape into pairs, shuffle pairs, then flatten back
+        pairs_c = choices_c[s].reshape(-1, 2)  # Shape: (N/B, 2)
+        np.random.shuffle(pairs_c)  # Shuffle along first dimension
+        choices_c[s] = pairs_c.flatten()  # Back to 1D array
+    choices_c1 = choices_c[:,0::2]
+    choices_c2 = choices_c[:,1::2]
+    
+    # Select target from distribution 2
+    targets_c_ind = np.random.choice(np.arange(1, choices_c.shape[1], 2), size = (S,))
+    targets_c = choices_c[np.arange(choices_c.shape[0]),targets_c_ind]
+    
+    filt_B = np.random.uniform(size = S) > p_B1
+    
+    
+    
+    
+    
+    
+def combine_mm_input_seqs_v1(inputs_m1, inputs_m2, labels_m1, labels_m2, targets_m1, targets_m2):
+    # Combine the input sequences from the two distributions, always make m2 as the query item
+    pass
+    
 class ICLDataset(IterableDataset):
     def __init__(
         self,
