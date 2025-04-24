@@ -79,7 +79,7 @@ def train(model,batch_size,train_data,test_data, test_ic_data, test_ic2_data, te
 if __name__ == "__main__":
     # Set up CUDA and random seeds
     device = torch.device(f"cuda:{int(sys.argv[18])}" if torch.cuda.is_available() else "cpu")
-    SEED = int(sys.argv[18])
+    SEED = 0
     torch.manual_seed(SEED)
     np.random.seed(SEED)
     torch.backends.cudnn.deterministic = True

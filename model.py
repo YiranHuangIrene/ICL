@@ -11,7 +11,8 @@ from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
 @dataclass
 class ModelArgs:
-    mm_dim: int = 128
+    m1_dim: int = 128
+    m2_dim: int = 128
     dim: int = 128
     n_layers: int = 2
     n_heads: int = 1
@@ -226,9 +227,9 @@ class Transformer(nn.Module):
 class Projector(nn.Module):
     def __init__(self, args: ModelArgs):
         super().__init__()
-        self.fc1 = nn.Linear(args.mm_dim, args.dim, bias=False) 
+        self.fc1 = nn.Linear(args.m2_dim, args.m1_dim, bias=False) 
         self.act = nn.GELU()
-        self.fc2 = nn.Linear(args.dim, args.dim, bias=False) 
+        self.fc2 = nn.Linear(args.m1_dim, args.m1_dim, bias=False) 
         self._init_weights()
         
     def _init_weights(self):
@@ -259,7 +260,7 @@ class MMTransformer(Transformer):
         else:
             inputs = torch.zeros((bsz, seq_len, self.args.L_pos + feat_dim), device=x_m1.device, dtype=x_m1.dtype)
             inputs[:,:,self.args.L_pos:] = x_m1
-            shifts = torch.randint(0, self.args.L_pos - seq_len + 1, size = (bsz), device=x_m1.device)
+            shifts = torch.randint(0, self.args.L_pos - seq_len + 1, size = (bsz,), device=x_m1.device)
             for s in range(bsz):
                 inputs[s,:,shifts[s]:shifts[s] + seq_len] = torch.eye(seq_len, device=x_m1.device)
         return inputs

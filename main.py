@@ -33,7 +33,7 @@ def evaluate(model, dataloader, flip_labels=False, device=None):
             acc = accuracy(outputs, labels, flip_labels=flip_labels)
         return loss, acc
 
-def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, test_iw_loader, optimizer, device, print_every, ckpt_store_freq, prefix, niters, n_epochs):
+def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, test_iw_loader, optimizer, device, print_every, save_ckpt, ckpt_store_freq, prefix, niters, n_epochs):
     model.to(device)
     loss_criterion = torch.nn.CrossEntropyLoss()
     for epoch in range(n_epochs):
@@ -55,7 +55,7 @@ def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, tes
             optimizer.step()
             
             # Save checkpoint
-            if n%ckpt_store_freq==0 and n!=0:
+            if n%ckpt_store_freq==0 and n!=0 and save_ckpt or n==niters-1:
                 if not os.path.exists(prefix):
                     os.makedirs(prefix)
                 if not os.path.exists(f"{prefix}/seed_{SEED}"):
@@ -75,8 +75,8 @@ def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, tes
         
 if __name__ == "__main__":
     # Set up CUDA and random seeds
-    device = torch.device(f"cuda:{int(sys.argv[18])}" if torch.cuda.is_available() else "cpu")
-    SEED = int(sys.argv[18])
+    device = torch.device(f"cuda:{int(sys.argv[19])}" if torch.cuda.is_available() else "cpu")
+    SEED = 0
     torch.manual_seed(SEED)
     np.random.seed(SEED)
     torch.backends.cudnn.deterministic = True
@@ -106,15 +106,16 @@ if __name__ == "__main__":
     rms_norm = bool(int(sys.argv[15])) # Whether to use RMS normalization
 
     # Training parameters
-    niters = 300000  # Number of iterations
+    niters = 600000  # Number of iterations
     n_epochs = 1
     batch_size = int(sys.argv[16])
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
     optimizer = sys.argv[17]
     print_every = 1000  # Print every n iterations
-    ckpt_store_freq = 50000 # Store every n iterations
-
+    ckpt_store_freq = 100000 # Store every n iterations
+    save_ckpt = bool(int(sys.argv[18]))
+    
     if rope:
         input_dim = D
     else:
@@ -223,4 +224,4 @@ if __name__ == "__main__":
     test_iw_loader = DataLoader(test_iw_dataset, batch_size=None,num_workers=1)
 
     
-    train(model=model, train_loader=train_loader, test_loader=test_loader, test_ic_loader=test_ic_loader, test_ic2_loader=test_ic2_loader, test_iw_loader=test_iw_loader, optimizer=optimizer, device=device, print_every=print_every, ckpt_store_freq=ckpt_store_freq, prefix=prefix, niters=niters, n_epochs=n_epochs)
+    train(model=model, train_loader=train_loader, test_loader=test_loader, test_ic_loader=test_ic_loader, test_ic2_loader=test_ic2_loader, test_iw_loader=test_iw_loader, optimizer=optimizer, device=device, print_every=print_every, save_ckpt=save_ckpt, ckpt_store_freq=ckpt_store_freq, prefix=prefix, niters=niters, n_epochs=n_epochs)

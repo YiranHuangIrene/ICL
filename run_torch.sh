@@ -24,4 +24,4 @@ device=0
 
 # Example
 # python3 main.py ${K} ${N} ${D} ${L} ${alpha} ${B} ${p_B} ${p_C} ${eps} ${no_repeats} ${n_heads} ${n_layers} ${rope_theta} ${rms_norm} ${optimizer} ${device}z
-python3 main.py ${K} ${N} ${D} ${L} ${alpha} ${B} ${p_B} ${p_C} ${eps} ${no_repeats} ${n_heads} ${n_layers} ${rope_theta} ${rms_norm} ${batch_size} ${optimizer} ${device} &
+python3 main.py ${K} ${N} ${D} ${L} ${alpha} ${B} ${p_B} ${p_C} ${eps} ${no_repeats} ${n_heads} ${n_layers} ${rope_theta} ${rms_norm} ${batch_size} ${optimizer} ${device} 
