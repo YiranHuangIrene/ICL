@@ -40,7 +40,7 @@ def evaluate(model, data, flip_labels=False, device=None,L2=None):
         
         return loss, acc
 
-def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_data,optimizer, device, print_every, ckpt_store_freq, prefix, niters, n_epochs):
+def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_data,optimizer, device, print_every, ckpt_store_freq, prefix, niters, n_epochs, save_ckpt):
     model.to(device)
     loss_criterion = torch.nn.CrossEntropyLoss()
     global_iter = 0
@@ -65,9 +65,10 @@ def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_d
             optimizer.step()
             
             # Save checkpoint
-            if global_iter%ckpt_store_freq==0 and global_iter!=0:
-                if not os.path.exists(prefix):
-                    os.makedirs(prefix)
+            if save_ckpt:
+                if global_iter%ckpt_store_freq==0 and global_iter!=0:
+                    if not os.path.exists(prefix):
+                        os.makedirs(prefix)
                 if not os.path.exists(f"{prefix}/seed_{SEED}"):
                     os.makedirs(f"{prefix}/seed_{SEED}")
                 torch.save(model.state_dict(), f"{prefix}/seed_{SEED}/ckpt_{global_iter}.pt")
@@ -86,7 +87,7 @@ def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_d
         
 if __name__ == "__main__":
     # Set up CUDA and random seeds
-    device = torch.device(f"cuda:{int(sys.argv[26])}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{int(sys.argv[27])}" if torch.cuda.is_available() else "cpu")
     SEED = 0
     torch.manual_seed(SEED)
     np.random.seed(SEED)
@@ -135,6 +136,7 @@ if __name__ == "__main__":
     optimizer = sys.argv[25]
     print_every = 1000  # Print every n iterations
     ckpt_store_freq = 30000 # Store every n iterations
+    save_ckpt = bool(int(sys.argv[26]))
     
 
     if rope:
@@ -226,5 +228,5 @@ if __name__ == "__main__":
     test_iw_data = generate_input_seqs_mm_v1(mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, mus_class_m2=mus_class_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=S,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B = 0, p_B = 0, p_C = 0, no_repeats = no_repeats)
     
     print("Training model...")
-    train(model=model, train_loader=train_loader, test_data=test_data,  test_ic_data=test_ic_data, test_ic2_data=test_ic2_data, test_iw_data=test_iw_data, optimizer=optimizer, device=device, print_every=print_every, ckpt_store_freq=ckpt_store_freq, prefix=prefix, niters=niters, n_epochs=n_epochs)
+    train(model=model, train_loader=train_loader, test_data=test_data,  test_ic_data=test_ic_data, test_ic2_data=test_ic2_data, test_iw_data=test_iw_data, optimizer=optimizer, device=device, print_every=print_every, ckpt_store_freq=ckpt_store_freq, prefix=prefix, niters=niters, n_epochs=n_epochs, save_ckpt=save_ckpt)
     
