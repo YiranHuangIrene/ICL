@@ -7,5 +7,5 @@ test.ipynb
 visualize_layer6.ipynb
 visualize.ipynb
 RoPE.py
-outs_torch/*
+*.pt
 

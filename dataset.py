@@ -43,6 +43,23 @@ def get_mm_mus_label_class(K1,K2,L1,L2,D1,D2):
     mapping_m2_to_m1 = np.array(mapping_m2_to_m1)
     return mus_label_m1, mus_class_m1, labels_class_m1, mus_label_m2, mus_class_m2, labels_class_m2, mapping_m2_to_m1
 
+def generate_encoder_input(mus_class,eps,S):
+    # Generate input data for the encoder
+    # mus_class: (K,D) the class embeddings for the K classes
+    # eps: the within-class variance
+    # Returns:
+    # inputs: (S,D) the input data for the encoder
+    # labels: (S) the labels for the input data
+    K = mus_class.shape[0]
+    D = mus_class.shape[1]
+    inputs = np.zeros((S,D))
+    e_fac = 1/np.sqrt(1+eps**2)
+    choices = np.random.choice(K, size = (S,))
+    inputs = e_fac*(mus_class[choices] + eps*np.random.normal(size = (S,D))/np.sqrt(D))
+    labels = np.zeros((S,K),dtype=bool)
+    labels[np.arange(S),choices] = True
+    return torch.FloatTensor(inputs), torch.FloatTensor(labels)
+
 def generate_input_seqs(mus_label, mus_class, labels_class, N,S, Nmax, eps= 0.1, B = 0, p_B = 0, P = None, p_C = 0, flip_labels = False, output_target_labels = False, no_repeats = False, seq_labels = False, rope = True):
     e_fac = 1/np.sqrt(1+eps**2)
     
@@ -756,3 +773,38 @@ class MMDataset(IterableDataset):
             # Convert to tensors and yield as a batch
             yield inputs_mm, inputs_2, labels
             self.n_samples += 1
+            
+class EncoderDataset(IterableDataset):
+    def __init__(self, mus_class, eps, S, datasize):
+        """
+        mus_class: (K, D) array of class means
+        eps: float, within-class noise scale
+        samples_per_epoch: int or None, how many samples to emit per epoch
+        infinite: if True, ignore samples_per_epoch and loop forever
+        """
+        super().__init__()
+        self.mus_class = mus_class
+        self.eps = eps
+        self.S = S
+        self.datasize = datasize
+        self.n_samples = 0
+
+        # precompute constants
+        self.K, self.D = mus_class.shape
+        self.e_fac = 1.0 / np.sqrt(1.0 + eps**2)
+
+    def __iter__(self):
+        while self.n_samples < self.datasize:
+            inputs, labels = self.generate_input()
+            # Convert to tensors and yield as a batch
+            yield torch.FloatTensor(inputs), torch.FloatTensor(labels)
+            self.n_samples += 1
+
+    def generate_input(self):
+        inputs = np.zeros((self.S, self.D))
+        choices = np.random.choice(self.K, size=(self.S,))
+        inputs = self.e_fac * (self.mus_class[choices] + self.eps * np.random.normal(size=(self.S, self.D)) / np.sqrt(self.D))
+        labels = np.zeros((self.S, self.K), dtype=bool)
+        labels[np.arange(self.S), choices] = True
+        return inputs, labels
+        

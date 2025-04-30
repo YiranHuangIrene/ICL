@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 from torch import nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
+from dataclasses import dataclass, field
 
 @dataclass
 class ModelArgs:
@@ -24,6 +25,13 @@ class ModelArgs:
     rope_theta: float = 10000
     mlp_bias: bool = True
     L_pos: int = 64
+
+@dataclass
+class MLPEncoderArgs:
+    input_dim: int = 128
+    hidden_sizes: List[int] = field(default_factory=lambda: [64])
+    output_dim: int = 32
+    num_classes: int = 256
     
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
@@ -270,7 +278,38 @@ class MMTransformer(Transformer):
         inputs = self.combine_mm_input_seqs_v1(x_m1, x_m2)
         return super().forward(inputs, output_attn_weights)
     
-    
-    
-    
-    
+class MLPEncoder(nn.Module):
+    def __init__(self, args, activation=nn.ReLU):
+        """
+        hidden_sizes: list of int for the first (n-1) hidden layers
+        bottleneck_dim: d2, size of final hidden layer before classification head
+        """
+        super().__init__()
+        self.input_dim = args.input_dim
+        self.hidden_sizes = args.hidden_sizes
+        self.bottleneck_dim = args.output_dim
+        self.num_classes = args.num_classes
+        
+        layers = []
+        prev_dim = self.input_dim
+        # build all but final hidden
+        for h in self.hidden_sizes:
+            layers.append(nn.Linear(prev_dim, h))
+            layers.append(activation())
+            prev_dim = h
+        # bottleneck layer
+        layers.append(nn.Linear(prev_dim, self.bottleneck_dim))
+        layers.append(activation())
+        self.feature_extractor = nn.Sequential(*layers)
+        self.classifier = nn.Linear(self.bottleneck_dim, self.num_classes)
+
+    def forward(self, x, return_features=False):
+        feats = self.feature_extractor(x)
+        logits = self.classifier(feats)
+        if return_features:
+            return logits, feats
+        return logits
+
+    def extract_features(self, x):
+        """Get the d2-dimensional representation."""
+        return self.feature_extractor(x)
