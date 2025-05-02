@@ -28,11 +28,20 @@ class ModelArgs:
 
 @dataclass
 class MLPEncoderArgs:
-    input_dim: int = 128
+    input_dim: int = 512
     hidden_sizes: List[int] = field(default_factory=lambda: [64])
     output_dim: int = 32
     num_classes: int = 256
-    
+
+@dataclass
+class TransformerEncoderArgs:
+    feat_dim: int = 512
+    input_dim: int = 32
+    output_dim: int = 32
+    num_classes: int = 256
+    num_layers: int = 1
+    num_heads: int = 1
+
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
         super().__init__()
@@ -314,12 +323,54 @@ class MLPEncoder(nn.Module):
         """Get the d2-dimensional representation."""
         return self.feature_extractor(x)
 
+class TransformerEncoder(nn.Module):
+    def __init__(self, args, dropout=0.1):
+        super().__init__()
+        self.seq_len = args.feat_dim // args.input_dim
+        # linear projection of each segment
+        self.patch_embed = nn.Linear(args.input_dim, args.output_dim)
+        # CLS token
+        self.cls_token = nn.Parameter(torch.randn(1, 1, args.output_dim))
+        # positional embeddings for CLS + sequence
+        self.pos_embedding = nn.Parameter(torch.randn(1, self.seq_len + 1, args.output_dim))
+        # Transformer encoder
+        encoder_layer = nn.TransformerEncoderLayer(d_model=args.output_dim,
+                                                   nhead=args.num_heads,
+                                                   dim_feedforward=5 * args.output_dim,
+                                                   dropout=dropout,
+                                                   batch_first=True)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=args.num_layers)
+        # classification head
+        self.classifier = nn.Linear(args.output_dim, args.num_classes)
+
+    def forward(self, x):
+        features = self.extract_features(x)  # (B, output_dim)
+        logits = self.classifier(features)              # (B, num_classes)
+        return logits
+    
+    def extract_features(self, x):
+        # x: (batch, D)
+        B, D = x.shape
+        # reshape to (batch, seq_len, input_dim)
+        x = x.view(B, self.seq_len, -1)
+        # embed segments
+        x = self.patch_embed(x)  # (B, seq_len, output_dim)
+        # prepend CLS token
+        cls_tokens = self.cls_token.expand(B, -1, -1)  # (B,1,output_dim)
+        x = torch.cat((cls_tokens, x), dim=1)           # (B, seq_len+1, output_dim)
+        x = x + self.pos_embedding                      # add positional embeddings
+        # Transformer encoding
+        x = self.encoder(x)                             # (B, seq_len+1, output_dim)
+        # take CLS output as feature
+        features = x[:, 0, :]                           # (B, output_dim)
+        return features
+    
 class MLLMTransformer(Transformer):
     def __init__(self, args: ModelArgs):
         super().__init__(args)
         self.projector = Projector(args)
     
-    def init_encoder(self, encoder: MLPEncoder):
+    def init_encoder(self, encoder):
         self.encoder = encoder
            
     def combine_mm_input_seqs_v1(self, x_m1: torch.Tensor, x_m2: torch.Tensor):
