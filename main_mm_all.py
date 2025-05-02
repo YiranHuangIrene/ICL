@@ -4,7 +4,7 @@ import time
 import wandb
 import torch
 import numpy as np
-from model import ModelArgs, MLPEncoderArgs, Transformer, MLPEncoder, MLLMTransformer
+from model import ModelArgs, MLPEncoderArgs, Transformer, MLPEncoder, MLLMTransformer, TransformerEncoderArgs, TransformerEncoder
 from dataset import ICLDataset, MMDataset, get_mus_label_class, generate_input_seqs, generate_input_seqs_mm_v1,get_mm_mus_label_class
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
@@ -39,8 +39,38 @@ def evaluate(model, data, flip_labels=False, device=None,L2=None):
         loss = loss_criterion(outputs, labels)
         
         return loss, acc
+    
+def evaluate_transformer(model, data, flip_labels=False, device=None,L2=None):
+    model.eval()
+    loss_criterion = torch.nn.CrossEntropyLoss()
+    with torch.no_grad():
+        inputs_mm, inputs_2, labels = data
+        inputs_mm_1, inputs_mm_2 = torch.chunk(inputs_mm, 2, dim=0)
+        inputs_2_1, inputs_2_2 = torch.chunk(inputs_2, 2, dim=0)
+        labels_1, labels_2 = torch.chunk(labels, 2, dim=0)
+        
+        inputs_mm_1, inputs_mm_2 = inputs_mm_1.to(device), inputs_mm_2.to(device)
+        inputs_2_1, inputs_2_2 = inputs_2_1.to(device), inputs_2_2.to(device)
+        labels_1, labels_2 = labels_1.to(device), labels_2.to(device)
+        outputs_1 = model(inputs_mm_1, inputs_2_1)
+        outputs_2 = model(inputs_mm_2, inputs_2_2)
+        acc_1 = accuracy(outputs_1, labels_1, flip_labels=flip_labels, L2=L2)
+        acc_2 = accuracy(outputs_2, labels_2, flip_labels=flip_labels, L2=L2)
+        acc = (acc_1 + acc_2) / 2
+        if flip_labels:
+            labels_inds = torch.argmax(labels.int(), dim=-1)
+            labels_inds = (labels_inds + 1) % L2
+            labels = torch.zeros_like(labels)
+            labels.scatter_(1, labels_inds.unsqueeze(1), 1)
+            labels_1, labels_2 = torch.chunk(labels, 2, dim=0)
+            labels_1, labels_2 = labels_1.to(device), labels_2.to(device)
+        loss_1 = loss_criterion(outputs_1, labels_1)
+        loss_2 = loss_criterion(outputs_2, labels_2)
+        loss = (loss_1 + loss_2) / 2
+        
+        return loss, acc
 
-def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_data,optimizer, device, print_every, ckpt_store_freq, prefix, niters, n_epochs, save_ckpt):
+def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_data,optimizer, device, encoder,print_every, ckpt_store_freq, prefix, niters, n_epochs, save_ckpt):
     model.to(device)
     loss_criterion = torch.nn.CrossEntropyLoss()
     global_iter = 0
@@ -75,10 +105,16 @@ def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_d
                 
             # Evaluate  
             if global_iter%print_every==0:
-                loss_test, acc_test = evaluate(model, test_data, flip_labels=False, device=device)
-                loss_ic, acc_ic = evaluate(model, test_ic_data, flip_labels=False, device=device)
-                loss_ic2, acc_ic2 = evaluate(model, test_ic2_data, flip_labels=True, device=device,L2=L2)
-                loss_iw, acc_iw = evaluate(model, test_iw_data, flip_labels=False, device=device)
+                if encoder == "transformer":
+                    loss_test, acc_test = evaluate_transformer(model, test_data, flip_labels=False, device=device)
+                    loss_ic, acc_ic =  evaluate_transformer(model, test_ic_data, flip_labels=False, device=device)
+                    loss_ic2, acc_ic2 = evaluate_transformer(model, test_ic2_data, flip_labels=True, device=device,L2=L2)
+                    loss_iw, acc_iw = evaluate_transformer(model, test_iw_data, flip_labels=False, device=device)
+                else:
+                    loss_test, acc_test = evaluate(model, test_data, flip_labels=False, device=device)
+                    loss_ic, acc_ic = evaluate(model, test_ic_data, flip_labels=False, device=device)
+                    loss_ic2, acc_ic2 = evaluate(model, test_ic2_data, flip_labels=True, device=device,L2=L2)
+                    loss_iw, acc_iw = evaluate(model, test_iw_data, flip_labels=False, device=device)
                 print(f"Epoch {epoch}, Iteration {n}: Train loss: {loss:.4f}, Train acc: {acc:.4f}, Test loss: {loss_test:.4f}, Test acc: {acc_test:.4f}, IC loss: {loss_ic:.4f}, IC acc: {acc_ic:.4f}, IC2 loss: {loss_ic2:.4f}, IC2 acc: {acc_ic2:.4f}, IW loss: {loss_iw:.4f}, IW acc: {acc_iw:.4f}")
                 if WANDB:
                     wandb.log({"Epoch": epoch, "Iteration": n, "global_iter": global_iter, "Train_Loss": loss, "Train_Accuracy": acc, "Test_Loss": loss_test, "Test_Accuracy": acc_test, "IC_Loss": loss_ic, "IC_Accuracy": acc_ic, "IC2_Loss": loss_ic2, "IC2_Accuracy": acc_ic2, "IW_Loss": loss_iw, "IW_Accuracy": acc_iw})
@@ -87,7 +123,7 @@ def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_d
         
 if __name__ == "__main__":
     # Set up CUDA and random seeds
-    device = torch.device(f"cuda:{int(sys.argv[29])}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{int(sys.argv[30])}" if torch.cuda.is_available() else "cpu")
     SEED = 0
     torch.manual_seed(SEED)
     np.random.seed(SEED)
@@ -125,21 +161,24 @@ if __name__ == "__main__":
     rope_theta = int(sys.argv[20])  # Rope base
     rms_norm = bool(int(sys.argv[21])) # Whether to use RMS normalization
     L_pos = int(sys.argv[22])
-    freeze_layers = bool(int(sys.argv[23]))
-    freeze_encoder = bool(int(sys.argv[24]))
-    ckpt_path = sys.argv[25]
-    ckpt_path_enc = f"/home/aoq609/ICL/outs_encoder/K{K2}_eps{eps0}_input_dim{D2}_hidden_sizes{[D1]}_output_dim{D1//2}_niter50000/seed_0/ckpt_49999.pt"
-    
+    encoder = sys.argv[23] # which encoder to use
+    freeze_layers = bool(int(sys.argv[24]))
+    freeze_encoder = bool(int(sys.argv[25]))
+    ckpt_path = sys.argv[26]
+    if encoder == "mlp":
+        ckpt_path_enc = f"/home/aoq609/ICL/outs_encoder/K{K2}_eps{eps0}_input_dim{D2}_hidden_sizes{[D1]}_output_dim{D1//2}_niter50000/seed_0/ckpt_49999.pt"
+    elif encoder == "transformer":
+        ckpt_path_enc = f"/home/aoq609/ICL/outs_encoder_transformer/K{K2}_eps{eps0}_feat_dim{D2}_input_dim128_output_dim{D1//2}_num_layers2_num_heads1_niter50000/seed_0/ckpt_49999.pt"
     # Training parameters
     niters = 150000  # Number of iterations
     n_epochs = 1  # Number of epochs
-    batch_size = int(sys.argv[26])
+    batch_size = int(sys.argv[27])
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
     optimizer = sys.argv[27]
     print_every = 1000  # Print every n iterations
     ckpt_store_freq = 10000 # Store every n iterations
-    save_ckpt = bool(int(sys.argv[28]))
+    save_ckpt = bool(int(sys.argv[29]))
     
 
     if rope:
@@ -148,7 +187,7 @@ if __name__ == "__main__":
         input_dim = L_pos + D1
         
    # Initialize wandb
-    prefix = f"./outs_torch/K1_{K1}_K2_{K2}_N{N}_D1_{D1}_D2_{D2}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps0{eps0}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_freeze_layers{freeze_layers}_freeze_encoder{freeze_encoder}_n_heads{n_heads}_n_layers{n_layers}_niters{niters}"
+    prefix = f"./outs_torch/K1_{K1}_K2_{K2}_N{N}_D1_{D1}_D2_{D2}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps0{eps0}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_encoder_{encoder}_freeze_layers{freeze_layers}_freeze_encoder{freeze_encoder}_n_heads{n_heads}_n_layers{n_layers}_niters{niters}"
     if WANDB:
         wandb.init(project="ICL_torch",
                 name=f"run_{SEED}_{prefix.split('/')[-1]}",
@@ -184,6 +223,7 @@ if __name__ == "__main__":
                     "seed": SEED,
                     "n_epochs": n_epochs,
                     "L_pos": L_pos,
+                    "encoder": encoder,
                     "freeze_layers": freeze_layers,
                     "freeze_encoder": freeze_encoder,
                     "ckpt_path": ckpt_path,
@@ -206,19 +246,29 @@ if __name__ == "__main__":
         norm_eps=1e-5,
         L_pos=L_pos
     )
-    model_args_enc = MLPEncoderArgs(
-        input_dim=D2,
-        hidden_sizes=[D1],
-        output_dim=D1//2,
-        num_classes=K2
-    )
+    if encoder == "mlp":
+        model_args_enc = MLPEncoderArgs(
+            input_dim=D2,
+            hidden_sizes=[D1],
+            output_dim=D1//2,
+            num_classes=K2
+        )
+        Encoder = MLPEncoder(model_args_enc)
+        
+    elif encoder == "transformer":
+        model_args_enc = TransformerEncoderArgs(
+            feat_dim=D2,
+            input_dim=128,
+            output_dim=D1//2,
+            num_classes=K2,
+            num_layers=2,
+            num_heads=1
+        )
+        Encoder = TransformerEncoder(model_args_enc)
+    Encoder.load_state_dict(torch.load(ckpt_path_enc), strict=True)
     model = MLLMTransformer(model_args_mm)
-    encoder = MLPEncoder(model_args_enc)
-    weights_enc = ckpt_path_enc
-    encoder.load_state_dict(torch.load(weights_enc), strict=True)
-    model.init_encoder(encoder)
-    weights = ckpt_path
-    model.load_state_dict(torch.load(weights),strict=False)
+    model.init_encoder(Encoder)
+    model.load_state_dict(torch.load(ckpt_path),strict=False)
     print("Model structure:")
     print(model)
     if freeze_layers:
@@ -246,5 +296,5 @@ if __name__ == "__main__":
     test_iw_data = generate_input_seqs_mm_v1(mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, mus_class_m2=mus_class_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=S,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B = 0, p_B = 0, p_C = 0, no_repeats = no_repeats)
     
     print("Training model...")
-    train(model=model, train_loader=train_loader, test_data=test_data,  test_ic_data=test_ic_data, test_ic2_data=test_ic2_data, test_iw_data=test_iw_data, optimizer=optimizer, device=device, print_every=print_every, ckpt_store_freq=ckpt_store_freq, prefix=prefix, niters=niters, n_epochs=n_epochs, save_ckpt=save_ckpt)
+    train(model=model, train_loader=train_loader, test_data=test_data,  test_ic_data=test_ic_data, test_ic2_data=test_ic2_data, test_iw_data=test_iw_data, optimizer=optimizer, device=device, encoder=encoder,print_every=print_every, ckpt_store_freq=ckpt_store_freq, prefix=prefix, niters=niters, n_epochs=n_epochs, save_ckpt=save_ckpt)
     

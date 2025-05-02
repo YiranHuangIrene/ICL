@@ -350,7 +350,12 @@ class TransformerEncoder(nn.Module):
     
     def extract_features(self, x):
         # x: (batch, D)
-        B, D = x.shape
+        bsz = x.shape[0]
+        if len(x.shape) == 2:
+            B, D = x.shape
+        else:
+            x = x.view(-1, x.shape[-1])
+            B, D = x.shape
         # reshape to (batch, seq_len, input_dim)
         x = x.view(B, self.seq_len, -1)
         # embed segments
@@ -363,6 +368,7 @@ class TransformerEncoder(nn.Module):
         x = self.encoder(x)                             # (B, seq_len+1, output_dim)
         # take CLS output as feature
         features = x[:, 0, :]                           # (B, output_dim)
+        features = features.view(bsz, -1, features.shape[-1])  # (B, seq_len, output_dim)
         return features
     
 class MLLMTransformer(Transformer):
