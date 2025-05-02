@@ -175,7 +175,7 @@ if __name__ == "__main__":
     batch_size = int(sys.argv[27])
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
-    optimizer = sys.argv[27]
+    optimizer = sys.argv[28]
     print_every = 1000  # Print every n iterations
     ckpt_store_freq = 10000 # Store every n iterations
     save_ckpt = bool(int(sys.argv[29]))
