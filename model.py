@@ -42,6 +42,12 @@ class TransformerEncoderArgs:
     num_layers: int = 1
     num_heads: int = 1
 
+@dataclass
+class CNNEncoderArgs:
+    input_dim: int = 512
+    output_dim: int = 32
+    num_classes: int = 256
+
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
         super().__init__()
@@ -360,7 +366,7 @@ class TransformerEncoder(nn.Module):
             nn.init.normal_(layer.self_attn.out_proj.weight, mean=0.0, std=0.02)
             if layer.self_attn.out_proj.bias is not None:
                 nn.init.constant_(layer.self_attn.out_proj.bias, 0)
-            nn.init.normal_(layer.self_attn.out_proj.weight, mean=0.0, std=0.02)
+            nn.init.normal_(layer.linear1.weight, mean=0.0, std=0.02)
             if layer.linear1.bias is not None:
                 nn.init.constant_(layer.linear1.bias, 0)
             nn.init.normal_(layer.linear2.weight, mean=0.0, std=0.02)
@@ -399,6 +405,65 @@ class TransformerEncoder(nn.Module):
         features = features.view(bsz, -1, features.shape[-1])  # (B, seq_len, output_dim)
         return features
     
+class CNNEncoder(nn.Module):
+    def __init__(self, args):
+        super(CNNEncoder, self).__init__()
+        input_dim = args.input_dim
+        num_classes = args.num_classes
+        feature_dim = args.output_dim
+        # Input to conv: (batch, 1, input_dim)
+        self.conv = nn.Sequential(
+            # Conv1: (batch, 1, D) -> (batch, 16, D)
+            nn.Conv1d(1, 16, kernel_size=3, padding=1),
+            nn.BatchNorm1d(16),
+            nn.ReLU(),
+            # Pool1: (batch, 16, D) -> (batch, 16, D/2)
+            nn.MaxPool1d(2),
+
+            # Conv2: (batch, 16, D/2) -> (batch, 32, D/2)
+            nn.Conv1d(16, 32, kernel_size=3, padding=1),
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+            # Pool2: (batch, 32, D/2) -> (batch, 32, D/4)
+            nn.MaxPool1d(2),
+
+            # Conv3: (batch, 32, D/4) -> (batch, 64, D/4)
+            nn.Conv1d(32, 64, kernel_size=3, padding=1),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            # Pool3: (batch, 64, D/4) -> (batch, 64, D/8)
+            nn.MaxPool1d(2),
+
+            # Conv4: (batch, 64, D/8) -> (batch, feature_dim, D/8)
+            nn.Conv1d(64, feature_dim, kernel_size=3, padding=1),
+            nn.BatchNorm1d(feature_dim),
+            nn.ReLU(),
+            # Adaptive pool: (batch, feature_dim, D/8) -> (batch, feature_dim, 1)
+            nn.AdaptiveMaxPool1d(1)
+        )
+        # Classifier: Linear maps (batch, feature_dim) -> (batch, num_classes)
+        self.classifier = nn.Linear(feature_dim, num_classes)
+
+    def forward(self, x):
+        feat = self.extract_features(x) 
+        logits = self.classifier(feat)  
+        return logits
+    
+    def extract_features(self, x):
+        # x: (batch, input_dim)
+        bsz = None
+        if len(x.shape) == 2:
+            x = x.unsqueeze(1)           # -> (batch, 1, input_dim)
+        else:
+            bsz, seq_len, D = x.shape
+            x = x.view(bsz*seq_len, 1, D)  # -> (batch*seq_len, 1, input_dim)
+        feat_map = self.conv(x)      # -> (batch*seq_len, feature_dim, 1)
+        features = feat_map.squeeze(-1)  # -> (batch*seq_len, feature_dim)
+        if bsz:
+            features = features.view(bsz, seq_len, features.shape[-1])  # -> (batch, seq_len, feature_dim)
+        return features
+
+
 class MLLMTransformer(Transformer):
     def __init__(self, args: ModelArgs):
         super().__init__(args)
