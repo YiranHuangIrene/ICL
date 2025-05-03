@@ -311,6 +311,17 @@ class MLPEncoder(nn.Module):
         layers.append(activation())
         self.feature_extractor = nn.Sequential(*layers)
         self.classifier = nn.Linear(self.bottleneck_dim, self.num_classes)
+        self.init_weights()
+        
+    def init_weights(self):
+        for layer in self.feature_extractor:
+            if isinstance(layer, nn.Linear):
+                nn.init.normal_(layer.weight, mean=0.0, std=0.02)
+                if layer.bias is not None:
+                    nn.init.constant_(layer.bias, 0)
+        nn.init.normal_(self.classifier.weight, mean=0.0, std=0.02)
+        if self.classifier.bias is not None:
+            nn.init.constant_(self.classifier.bias, 0)
 
     def forward(self, x, return_features=False):
         feats = self.feature_extractor(x)
@@ -342,7 +353,24 @@ class TransformerEncoder(nn.Module):
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=args.num_layers)
         # classification head
         self.classifier = nn.Linear(args.output_dim, args.num_classes)
+        self.init_weights()
+        
+    def init_weights(self):
+        for layer in self.encoder.layers:
+            nn.init.normal_(layer.self_attn.out_proj.weight, mean=0.0, std=0.02)
+            if layer.self_attn.out_proj.bias is not None:
+                nn.init.constant_(layer.self_attn.out_proj.bias, 0)
+            nn.init.normal_(layer.self_attn.out_proj.weight, mean=0.0, std=0.02)
+            if layer.linear1.bias is not None:
+                nn.init.constant_(layer.linear1.bias, 0)
+            nn.init.normal_(layer.linear2.weight, mean=0.0, std=0.02)
+            if layer.linear2.bias is not None:
+                nn.init.constant_(layer.linear2.bias, 0)
+        nn.init.normal_(self.classifier.weight, mean=0.0, std=0.02)
+        if self.classifier.bias is not None:
+            nn.init.constant_(self.classifier.bias, 0)
 
+            
     def forward(self, x):
         features = self.extract_features(x)  # (B, output_dim)
         logits = self.classifier(features)              # (B, num_classes)
