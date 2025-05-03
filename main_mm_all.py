@@ -166,16 +166,16 @@ if __name__ == "__main__":
     freeze_encoder = bool(int(sys.argv[25]))
     ckpt_path = sys.argv[26]
     if encoder == "mlp":
-        ckpt_path_enc = f"/home/aoq609/ICL/outs_encoder/K{K2}_eps{eps0}_input_dim{D2}_hidden_sizes{[D1]}_output_dim{D1//2}_niter50000/seed_0/ckpt_49999.pt"
+        ckpt_path_enc = f"/home/eml/yiran.huang/ICL/outs_encoder_mlp/K{K2}_eps{eps0}_input_dim{D2}_hidden_sizes{[D1]}_output_dim{D1//2}_niter50000/seed_0/ckpt_49999.pt"
     elif encoder == "transformer":
-        ckpt_path_enc = f"/home/aoq609/ICL/outs_encoder_transformer/K{K2}_eps{eps0}_feat_dim{D2}_input_dim128_output_dim{D1//2}_num_layers2_num_heads1_niter50000/seed_0/ckpt_49999.pt"
+        ckpt_path_enc = f"/home/eml/yiran.huang/ICL/outs_encoder_transformer/K{K2}_eps{eps0}_feat_dim{D2}_input_dim128_output_dim{D1//2}_num_layers2_num_heads1_niter50000/seed_0/ckpt_49999.pt"
     # Training parameters
     niters = 150000  # Number of iterations
     n_epochs = 1  # Number of epochs
     batch_size = int(sys.argv[27])
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
-    optimizer = sys.argv[27]
+    optimizer = sys.argv[28]
     print_every = 1000  # Print every n iterations
     ckpt_store_freq = 10000 # Store every n iterations
     save_ckpt = bool(int(sys.argv[29]))
