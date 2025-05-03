@@ -4,7 +4,7 @@ import time
 import wandb
 import torch
 import numpy as np
-from model import ModelArgs, MLPEncoderArgs, Transformer, MLPEncoder, MLLMTransformer, TransformerEncoderArgs, TransformerEncoder
+from model import ModelArgs, MLPEncoderArgs, Transformer, MLPEncoder, MLLMTransformer, TransformerEncoderArgs, TransformerEncoder, CNNEncoderArgs,CNNEncoder
 from dataset import ICLDataset, MMDataset, get_mus_label_class, generate_input_seqs, generate_input_seqs_mm_v1,get_mm_mus_label_class
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
@@ -105,7 +105,7 @@ def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_d
                 
             # Evaluate  
             if global_iter%print_every==0:
-                if encoder == "transformer":
+                if encoder == "transformer" or encoder == "cnn":
                     loss_test, acc_test = evaluate_transformer(model, test_data, flip_labels=False, device=device)
                     loss_ic, acc_ic =  evaluate_transformer(model, test_ic_data, flip_labels=False, device=device)
                     loss_ic2, acc_ic2 = evaluate_transformer(model, test_ic2_data, flip_labels=True, device=device,L2=L2)
@@ -166,9 +166,11 @@ if __name__ == "__main__":
     freeze_encoder = bool(int(sys.argv[25]))
     ckpt_path = sys.argv[26]
     if encoder == "mlp":
-        ckpt_path_enc = f"/home/eml/yiran.huang/ICL/outs_encoder_mlp/K{K2}_eps{eps0}_input_dim{D2}_hidden_sizes{[D1]}_output_dim{D1//2}_niter50000/seed_0/ckpt_49999.pt"
+        ckpt_path_enc = f"/home/aoq609/ICL/outs_encoder_mlp/K{K2}_eps{eps0}_input_dim{D2}_hidden_sizes{[D1]}_output_dim{D1//2}_niter50000/seed_0/ckpt_49999.pt"
     elif encoder == "transformer":
-        ckpt_path_enc = f"/home/eml/yiran.huang/ICL/outs_encoder_transformer/K{K2}_eps{eps0}_feat_dim{D2}_input_dim128_output_dim{D1//2}_num_layers2_num_heads1_niter50000/seed_0/ckpt_49999.pt"
+        ckpt_path_enc = f"/home/aoq609/ICL/outs_encoder_transformer/K{K2}_eps{eps0}_feat_dim{D2}_input_dim128_output_dim{D1//2}_num_layers2_num_heads1_niter50000/seed_0/ckpt_49999.pt"
+    elif encoder == "cnn":
+        ckpt_path_enc = f"/home/aoq609/ICL/outs_encoder_CNN/K{K2}_eps{eps0}_input_dim{D2}_output_dim{D1//2}_niter50000/seed_0/ckpt_20000.pt"
     # Training parameters
     niters = 150000  # Number of iterations
     n_epochs = 1  # Number of epochs
@@ -265,6 +267,14 @@ if __name__ == "__main__":
             num_heads=1
         )
         Encoder = TransformerEncoder(model_args_enc)
+        
+    elif encoder == "cnn":
+        model_args_enc = CNNEncoderArgs(
+            input_dim=D2,
+            output_dim=D1//2,
+            num_classes=K2
+        )
+        Encoder = CNNEncoder(model_args_enc)
     Encoder.load_state_dict(torch.load(ckpt_path_enc), strict=True)
     model = MLLMTransformer(model_args_mm)
     model.init_encoder(Encoder)

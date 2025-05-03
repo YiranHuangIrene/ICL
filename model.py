@@ -426,19 +426,26 @@ class CNNEncoder(nn.Module):
             nn.ReLU(),
             # Pool2: (batch, 32, D/2) -> (batch, 32, D/4)
             nn.MaxPool1d(2),
-
-            # Conv3: (batch, 32, D/4) -> (batch, 64, D/4)
-            nn.Conv1d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm1d(64),
+            
+            # Conv3: (batch, 32, D/4) -> (batch, 48, D/4)
+            nn.Conv1d(32, 48, kernel_size=3, padding=1),
+            nn.BatchNorm1d(48),
             nn.ReLU(),
-            # Pool3: (batch, 64, D/4) -> (batch, 64, D/8)
+            # Pool2: (batch, 48, D/4) -> (batch, 48, D/8)
             nn.MaxPool1d(2),
 
-            # Conv4: (batch, 64, D/8) -> (batch, feature_dim, D/8)
-            nn.Conv1d(64, feature_dim, kernel_size=3, padding=1),
+            # Conv4: ((batch, 48, D/8) -> (batch, 96, D/8)
+            nn.Conv1d(48, 96, kernel_size=3, padding=1),
+            nn.BatchNorm1d(96),
+            nn.ReLU(),
+            # Pool2: (batch, 96, D/8) -> (batch, 96, D/16)
+            nn.MaxPool1d(2),
+
+            # Conv5: (batch, 96, D/16) -> (batch, feature_dim, D/16)
+            nn.Conv1d(96, feature_dim, kernel_size=3, padding=1),
             nn.BatchNorm1d(feature_dim),
             nn.ReLU(),
-            # Adaptive pool: (batch, feature_dim, D/8) -> (batch, feature_dim, 1)
+            # Adaptive pool: (batch, feature_dim, D/16) -> (batch, feature_dim, D/32)
             nn.AdaptiveMaxPool1d(1)
         )
         # Classifier: Linear maps (batch, feature_dim) -> (batch, num_classes)
