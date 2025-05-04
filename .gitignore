@@ -8,4 +8,6 @@ visualize_layer6.ipynb
 visualize.ipynb
 RoPE.py
 *.pt
+slurm_logs/*
+script/*
 
