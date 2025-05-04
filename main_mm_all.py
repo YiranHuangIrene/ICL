@@ -166,11 +166,11 @@ if __name__ == "__main__":
     freeze_encoder = bool(int(sys.argv[25]))
     ckpt_path = sys.argv[26]
     if encoder == "mlp":
-        ckpt_path_enc = f"/home/aoq609/ICL/outs_encoder_mlp/K{K2}_eps{eps0}_input_dim{D2}_hidden_sizes{[D1]}_output_dim{D1//2}_niter50000/seed_0/ckpt_49999.pt"
+        ckpt_path_enc = f"/home/eml/yiran.huang/ICL/outs_encoder_mlp/K{K2}_eps{eps0}_input_dim{D2}_hidden_sizes{[D1]}_output_dim{D1//2}_niter50000/seed_0/ckpt_49999.pt"
     elif encoder == "transformer":
-        ckpt_path_enc = f"/home/aoq609/ICL/outs_encoder_transformer/K{K2}_eps{eps0}_feat_dim{D2}_input_dim128_output_dim{D1//2}_num_layers2_num_heads1_niter50000/seed_0/ckpt_49999.pt"
+        ckpt_path_enc = f"/home/eml/yiran.huang/ICL/outs_encoder_transformer/K{K2}_eps{eps0}_feat_dim{D2}_input_dim128_output_dim{D1//2}_num_layers2_num_heads1_niter50000/seed_0/ckpt_49999.pt"
     elif encoder == "cnn":
-        ckpt_path_enc = f"/home/aoq609/ICL/outs_encoder_CNN/K{K2}_eps{eps0}_input_dim{D2}_output_dim{D1//2}_niter50000/seed_0/ckpt_20000.pt"
+        ckpt_path_enc = f"/home/eml/yiran.huang/ICL/outs_encoder_CNN/K{K2}_eps{eps0}_input_dim{D2}_output_dim{D1//2}_niter50000/seed_0/ckpt_49999.pt"
     # Training parameters
     niters = 150000  # Number of iterations
     n_epochs = 1  # Number of epochs
@@ -276,6 +276,8 @@ if __name__ == "__main__":
         )
         Encoder = CNNEncoder(model_args_enc)
     Encoder.load_state_dict(torch.load(ckpt_path_enc), strict=True)
+    for p in Encoder.classifier.parameters():
+        p.requires_grad = False
     model = MLLMTransformer(model_args_mm)
     model.init_encoder(Encoder)
     model.load_state_dict(torch.load(ckpt_path),strict=False)

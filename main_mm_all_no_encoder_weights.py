@@ -187,7 +187,7 @@ if __name__ == "__main__":
         input_dim = L_pos + D1
         
    # Initialize wandb
-    prefix = f"./outs_torch/K1_{K1}_K2_{K2}_N{N}_D1_{D1}_D2_{D2}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps0{eps0}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_encoder_{encoder}_freeze_layers{freeze_layers}_freeze_encoder{freeze_encoder}_n_heads{n_heads}_n_layers{n_layers}_niters{niters}_no_encoder_weights"
+    prefix = f"./outs_torch/K1_{K1}_K2_{K2}_N{N}_D1_{D1}_D2_{D2}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps0{eps0}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_encoder_{encoder}_freeze_layers{freeze_layers}_freeze_encoder{freeze_encoder}_n_heads{n_heads}_n_layers{n_layers}_niters{niters}_no_encoder_weights_initializated"
     if WANDB:
         wandb.init(project="ICL_torch",
                 name=f"run_{SEED}_{prefix.split('/')[-1]}",
@@ -266,7 +266,8 @@ if __name__ == "__main__":
             num_heads=1
         )
         Encoder = TransformerEncoder(model_args_enc)
-    # Encoder.load_state_dict(torch.load(ckpt_path_enc), strict=True)
+    for p in Encoder.classifier.parameters():
+        p.requires_grad = False
     model = MLLMTransformer(model_args_mm)
     model.init_encoder(Encoder)
     model.load_state_dict(torch.load(ckpt_path),strict=False)
