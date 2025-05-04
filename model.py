@@ -263,6 +263,23 @@ class Projector(nn.Module):
         x = self.fc2(self.act(self.fc1(x)))
         return x
     
+class Projector_large(nn.Module):
+    def __init__(self, args: ModelArgs):
+        super().__init__()
+        self.fc1 = nn.Linear(args.m2_dim, args.m1_dim, bias=False) 
+        self.act = nn.GELU()
+        self.fc2 = nn.Linear(args.m1_dim, args.m1_dim, bias=False) 
+        self.fc3 = nn.Linear(args.m1_dim, args.m1_dim, bias=False) 
+        self._init_weights()
+        
+    def _init_weights(self):
+        for layer in [self.fc1, self.fc2, self.fc3]:
+            nn.init.normal_(layer.weight, mean=0.0, std=0.02)
+            
+    def forward(self, x):
+        x = self.fc3(self.act(self.fc2(self.act(self.fc1(x)))))
+        return x
+
 class MMTransformer(Transformer):
     def __init__(self, args: ModelArgs):
         super().__init__(args)
@@ -292,6 +309,37 @@ class MMTransformer(Transformer):
         x_m2 = self.projector(x_m2)
         inputs = self.combine_mm_input_seqs_v1(x_m1, x_m2)
         return super().forward(inputs, output_attn_weights)
+    
+class MMTransformer_large(Transformer):
+    def __init__(self, args: ModelArgs):
+        super().__init__(args)
+        self.projector = Projector_large(args)
+    
+    def combine_mm_input_seqs_v1(self, x_m1: torch.Tensor, x_m2: torch.Tensor):
+        """
+        x_m1: (S, 3N+1, D1)
+        x_m2: Projected m2 feature, which has the same dimension as D1, shape (S, N+1, D1)
+        """
+        bsz = x_m1.shape[0]
+        seq_len = x_m1.shape[1]
+        feat_dim = x_m1.shape[2]
+        x_m1[:,1:-1:3,:] = x_m2[:,:-1,:]
+        x_m1[:,-1,:] = x_m2[:,-1,:]
+        if self.args.rope:
+            inputs = x_m1
+        else:
+            inputs = torch.zeros((bsz, seq_len, self.args.L_pos + feat_dim), device=x_m1.device, dtype=x_m1.dtype)
+            inputs[:,:,self.args.L_pos:] = x_m1
+            shifts = torch.randint(0, self.args.L_pos - seq_len + 1, size = (bsz,), device=x_m1.device)
+            for s in range(bsz):
+                inputs[s,:,shifts[s]:shifts[s] + seq_len] = torch.eye(seq_len, device=x_m1.device)
+        return inputs
+    
+    def forward(self, x_m1: torch.Tensor, x_m2: torch.Tensor, output_attn_weights: bool = False):
+        x_m2 = self.projector(x_m2)
+        inputs = self.combine_mm_input_seqs_v1(x_m1, x_m2)
+        return super().forward(inputs, output_attn_weights)    
+    
     
 class MLPEncoder(nn.Module):
     def __init__(self, args, activation=nn.ReLU):
@@ -504,3 +552,4 @@ class MLLMTransformer(Transformer):
         x_m2 = self.projector(x_m2)
         inputs = self.combine_mm_input_seqs_v1(x_m1, x_m2)
         return super().forward(inputs, output_attn_weights)
+    
