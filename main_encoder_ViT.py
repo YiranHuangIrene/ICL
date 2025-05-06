@@ -3,13 +3,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-from dataset import SingleOmniglotDataset,FullOmniglotDataset
+from dataset import SingleOmniglotDataset,FullOmniglotDataset, CIFAR100Dataset
 from vit import  ViTENcoderArgs, ViTEncoder
 import ast
 import sys 
 import os
 
-WANDB = False
+WANDB = True
 
 def train_model(model, dataloader, val_loader=None, lr=1e-3, weight_decay=1e-5, device=None, prefix=None, print_every=100, val_every=100, save_ckpt=True, save_every=1000):
     model.to(device)
@@ -62,28 +62,30 @@ if __name__ == "__main__":
     
     device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
     
-    K = int(sys.argv[1])
-    sample_method = sys.argv[2] 
-    eps = float(sys.argv[3])
-    image_size = int(sys.argv[4])
-    patch_size = int(sys.argv[5])
-    output_dim = int(sys.argv[6])
-    depth = int(sys.argv[7])
-    heads = int(sys.argv[8])
-    niter = int(sys.argv[9])
-    batch_size = int(sys.argv[10])
-    save_ckpt = bool(int(sys.argv[11]))
+    datasetname = sys.argv[1]
+    K = int(sys.argv[2])
+    sample_method = sys.argv[3] 
+    eps = float(sys.argv[4])
+    image_size = int(sys.argv[5])
+    patch_size = int(sys.argv[6])
+    output_dim = int(sys.argv[7])
+    depth = int(sys.argv[8])
+    heads = int(sys.argv[9])
+    niter = int(sys.argv[10])
+    batch_size = int(sys.argv[11])
+    save_ckpt = bool(int(sys.argv[12]))
     lr = 1e-3
     weight_decay = 1e-6 
     print_every = 100
     val_every = 100
     save_every = 10000
-    prefix = f"./outs_encoder_vit/K{K}_sample{sample_method}_eps{eps}_output_dim{output_dim}_depth{depth}_heads{heads}_niter{niter}"
+    prefix = f"./outs_encoder_vit/dataset_{datasetname}_K{K}_sample{sample_method}_eps{eps}_output_dim{output_dim}_depth{depth}_heads{heads}_niter{niter}"
     if WANDB:
             import wandb
             wandb.init(project="ICL_encoder", 
                     name=f"run_{SEED}_{prefix.split('/')[-1]}",
                     config={
+                "datasetname": datasetname,
                 "K": K,
                 "sample_method": sample_method,
                 "eps": eps,
@@ -98,6 +100,7 @@ if __name__ == "__main__":
     model_args = ViTENcoderArgs(
         image_size=image_size,
         patch_size=patch_size,
+        channels=1 if datasetname == "omniglot" else 3,
         num_classes=K,
         dim=output_dim,
         depth=depth,
@@ -106,12 +109,16 @@ if __name__ == "__main__":
     model = ViTEncoder(model_args)
     print(f"Model: {model}")
     root = os.path.dirname(os.path.abspath(__file__))
-    if sample_method == "full":
-        dataset = FullOmniglotDataset(root=root, K=K, eps=eps, S=batch_size, datasize=niter)
+    if datasetname == "omniglot":
+        if sample_method == "full":
+            dataset = FullOmniglotDataset(root=root, K=K, eps=eps, S=batch_size, datasize=niter)
+            val_dataset = dataset.generate_val()
+        elif sample_method == "single":
+            dataset = SingleOmniglotDataset(root=root, K=K, eps=eps, S=batch_size, datasize=niter)
+            val_dataset = dataset.generate_input()
+    elif datasetname == "cifar100":
+        dataset = CIFAR100Dataset(root=root, K=K, eps=eps, S=batch_size, datasize=niter)
         val_dataset = dataset.generate_val()
-    elif sample_method == "single":
-        dataset = SingleOmniglotDataset(root=root, K=K, eps=eps, S=batch_size, datasize=niter)
-        val_dataset = dataset.generate_input()
     
     train_loader = DataLoader(dataset, batch_size=None, num_workers=8)
     model = train_model(model, train_loader, val_loader=val_dataset, lr=lr, weight_decay=weight_decay, device=device, prefix=prefix, print_every=print_every, val_every=val_every, save_ckpt=save_ckpt, save_every=save_every)

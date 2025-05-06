@@ -2,7 +2,7 @@ import numpy as np
 import math
 import torch
 from torch.utils.data import IterableDataset, get_worker_info
-from torchvision.datasets import Omniglot
+from torchvision.datasets import Omniglot, CIFAR100
 
 def get_mus_label_class(K, L, D):
     """Generate label and class embeddings"""
@@ -1901,3 +1901,102 @@ class FullOmniglotMMDataset(IterableDataset):
             yield inputs_m, inputs_2, labels
             n += 1
     
+    
+class CIFAR100Dataset(IterableDataset):
+    def __init__(self, root, K, S=16, eps=0.0, datasize=10000,):
+        """
+        Iterable Dataset for CIFAR-100 with reserved novel classes.
+
+        Args:
+            root (str): Path to CIFAR-100 data.
+            train (bool): If True, use training split excluding novel classes; else use test split of novel classes.
+            novel_classes (int): Number of classes held out as novel (default=20).
+            S (int): Number of samples per generated batch.
+            eps (float): Gaussian noise sigma added to images.
+            datasize (int): Total number of iterations (samples) per epoch.
+            download (bool): Whether to download CIFAR-100 if missing.
+        """
+        super().__init__()
+        self.S = S
+        self.eps = eps
+        self.datasize = datasize
+        self.K = K
+    
+
+        # Load the full dataset once
+        full_train = CIFAR100(root=root, train=True)
+        full_test  = CIFAR100(root=root, train=False)
+
+        # Group images by label
+        from collections import defaultdict
+        self.label_to_imgs = defaultdict(list)
+        for img, label in full_train:
+            arr = np.array(img).astype(np.float32) / 255.0
+            self.label_to_imgs[label].append(arr)
+        for img, label in full_test:
+            arr = np.array(img).astype(np.float32) / 255.0
+            self.label_to_imgs[label].append(arr)
+
+        all_labels = sorted(self.label_to_imgs.keys())
+        # Reserve last novel_classes as novel
+        novel_classes = 10 
+        self.test_labels = all_labels[-novel_classes:]
+        self.train_labels = all_labels[:K]
+
+        self.class_to_imgs_train = {
+            i:  np.transpose(np.stack(self.label_to_imgs[label], axis=0), (0,3,1,2))
+            for i, label in enumerate(self.train_labels)
+        }
+        self.class_to_imgs_test = {
+            i: np.transpose(np.stack(self.label_to_imgs[label], axis=0), (0,3,1,2))
+            for i, label in enumerate(self.test_labels)
+        }
+
+    def __iter__(self):
+        worker = get_worker_info()
+        if worker is None:
+            start, end = 0, self.datasize
+        else:
+            per_worker = int(math.ceil(self.datasize / worker.num_workers))
+            start = worker.id * per_worker
+            end   = min(start + per_worker, self.datasize)
+
+        n = 0
+        while n < (end - start):
+            imgs, labels = self.generate_input()
+            yield imgs, labels
+            n += 1
+
+    def generate_input(self):
+        # Randomly choose S classes with replacement
+        class_idxs = np.random.choice(self.K, size=(self.S,), replace=True)
+        batch_imgs = []
+        for c in class_idxs:
+            # Randomly choose one image from the class
+            imgs = self.class_to_imgs_train[c]
+            idx = np.random.randint(len(imgs))
+            batch_imgs.append(imgs[idx])
+
+        imgs = np.stack(batch_imgs, axis=0)
+        noise = np.random.normal(0, self.eps, size=imgs.shape).astype(np.float32)
+        imgs = imgs + noise
+        
+        # One-hot labels
+        labels = np.zeros((self.S, self.K), dtype=bool)
+        labels[np.arange(self.S), class_idxs] = True
+        return torch.FloatTensor(imgs), torch.FloatTensor(labels)
+    
+    def generate_val(self):
+        class_idxs = np.arange(self.K)
+        batch_imgs = []
+        for c in class_idxs:
+            imgs = self.class_to_imgs_train[c]
+            idx = np.random.randint(len(imgs))
+            batch_imgs.append(imgs[idx])
+        imgs = np.stack(batch_imgs, axis=0)
+        noise = np.random.normal(0, self.eps, size=imgs.shape).astype(np.float32)
+        imgs = imgs + noise
+        labels = np.zeros((self.K, self.K), dtype=bool)
+        labels[np.arange(self.K), class_idxs] = True
+        return torch.FloatTensor(imgs), torch.FloatTensor(labels)
+        
