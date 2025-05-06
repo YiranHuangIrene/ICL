@@ -4,14 +4,14 @@ import time
 import wandb
 import torch
 import numpy as np
-from dataset import OmniglotMMDataset, get_mm_img_label_class
+from dataset import SingleOmniglotMMDataset, FullOmniglotMMDataset, get_mm_img_label_class
 from model import ModelArgs, MLLMTransformer
 from vit import  ViTENcoderArgs, ViTEncoder
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-WANDB = True
+WANDB = False
 
 def accuracy(outputs, labels, flip_labels=False, L2=None):
     predictions = F.softmax(outputs, dim=-1)
@@ -124,7 +124,7 @@ def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_d
         
 if __name__ == "__main__":
     # Set up CUDA and random seeds
-    device = torch.device(f"cuda:{int(sys.argv[30])}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{int(sys.argv[31])}" if torch.cuda.is_available() else "cpu")
     SEED = 0
     torch.manual_seed(SEED)
     np.random.seed(SEED)
@@ -147,6 +147,7 @@ if __name__ == "__main__":
     eps1 = float(sys.argv[14])
     eps2 = float(sys.argv[15])  # Within-class variance
     no_repeats = bool(int(sys.argv[16]))  # Whether repeated items are allowed in the context
+    sample_method = sys.argv[17]
     
     S = 512  # Number of sequences in the test set
     Nmax = 32  # Maximum number of item-label pairs in the context
@@ -156,16 +157,16 @@ if __name__ == "__main__":
     P2 /= np.sum(P2)  # Normalized power law distribution
     
     # Model Parameters
-    n_heads = int(sys.argv[17])  # Number of attention heads
-    n_layers = int(sys.argv[18])  # Number of transformer layers
-    rope = bool(int(sys.argv[19]))  # Whether to use RoPE
-    rope_theta = int(sys.argv[20])  # Rope base
-    rms_norm = bool(int(sys.argv[21])) # Whether to use RMS normalization
-    L_pos = int(sys.argv[22])
-    encoder = sys.argv[23] # which encoder to use
-    freeze_layers = bool(int(sys.argv[24]))
-    freeze_encoder = bool(int(sys.argv[25]))
-    ckpt_path = sys.argv[26]
+    n_heads = int(sys.argv[18])  # Number of attention heads
+    n_layers = int(sys.argv[19])  # Number of transformer layers
+    rope = bool(int(sys.argv[20]))  # Whether to use RoPE
+    rope_theta = int(sys.argv[21])  # Rope base
+    rms_norm = bool(int(sys.argv[22])) # Whether to use RMS normalization
+    L_pos = int(sys.argv[23])
+    encoder = sys.argv[24] # which encoder to use
+    freeze_layers = bool(int(sys.argv[25]))
+    freeze_encoder = bool(int(sys.argv[26]))
+    ckpt_path = sys.argv[27]
     root = os.path.dirname(os.path.realpath(__file__))
     ckpt_path_enc = f"{root}/outs_encoder_vit/K{K2}_output_dim{D2}_depth2_heads1_niter5000/seed_0/ckpt_4999.pt"
 
@@ -173,13 +174,13 @@ if __name__ == "__main__":
     # Training parameters
     niters = 150000  # Number of iterations
     n_epochs = 1  # Number of epochs
-    batch_size = int(sys.argv[27])
+    batch_size = int(sys.argv[28])
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
-    optimizer = sys.argv[28]
+    optimizer = sys.argv[29]
     print_every = 100  # Print every n iterations
     ckpt_store_freq = 10000 # Store every n iterations
-    save_ckpt = bool(int(sys.argv[29]))
+    save_ckpt = bool(int(sys.argv[30]))
     
 
     if rope:
@@ -188,13 +189,14 @@ if __name__ == "__main__":
         input_dim = L_pos + D1
         
    # Initialize wandb
-    prefix = f"./outs_torch/K1_{K1}_K2_{K2}_N{N}_D1_{D1}_D2_{D2}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps0{eps0}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_encoder_{encoder}_freeze_layers{freeze_layers}_freeze_encoder{freeze_encoder}_n_heads{n_heads}_n_layers{n_layers}_niters{niters}"
+    prefix = f"./outs_torch/K1_{K1}_K2_{K2}_sample_{sample_method}_N{N}_D1_{D1}_D2_{D2}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps0{eps0}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_encoder_{encoder}_freeze_layers{freeze_layers}_freeze_encoder{freeze_encoder}_n_heads{n_heads}_n_layers{n_layers}_niters{niters}"
     if WANDB:
         wandb.init(project="ICL_torch",
                 name=f"run_{SEED}_{prefix.split('/')[-1]}",
                 config={
                     "K1": K1,
                     "K2": K2,
+                    "sample_method": sample_method,
                     "N": N,
                     "D1": D1,
                     "D2": D2,
@@ -276,8 +278,11 @@ if __name__ == "__main__":
 
     # Initialize datasets
     mus_label_m1, mus_class_m1, labels_class_m1, mus_label_m2, labels_class_m2, mapping_m2_to_m1 = get_mm_img_label_class(K1=K1,K2=K2,L1=L1,L2=L2,D1=D1)
-    train_dataset = OmniglotMMDataset(root=root, K2=K2,mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=batch_size,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B=B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, datasize=niters)
-    train_loader = DataLoader(train_dataset, batch_size=None,num_workers=8)
+    if sample_method == "single":
+        train_dataset = SingleOmniglotMMDataset(root=root, K2=K2,mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=batch_size,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B=B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, datasize=niters)
+    elif sample_method == "full":
+        train_dataset = FullOmniglotMMDataset(root=root, K2=K2,mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=batch_size,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B=B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, datasize=niters)
+    train_loader = DataLoader(train_dataset, batch_size=None,num_workers=16)
     print("Generating test data...")
     test_data = train_dataset.generate_test_sequence(S=S,B=B, p_B = p_B, p_C = p_C)
     test_ic_data = train_dataset.generate_test_sequence(S=S,B=B, p_B = 1, p_C = 1)
