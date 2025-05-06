@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch.utils.data import IterableDataset
+from torchvision.datasets import Omniglot
 
 def get_mus_label_class(K, L, D):
     """Generate label and class embeddings"""
@@ -42,6 +43,33 @@ def get_mm_mus_label_class(K1,K2,L1,L2,D1,D2):
         mapping_m2_to_m1.append(matching_classes)
     mapping_m2_to_m1 = np.array(mapping_m2_to_m1)
     return mus_label_m1, mus_class_m1, labels_class_m1, mus_label_m2, mus_class_m2, labels_class_m2, mapping_m2_to_m1
+
+def get_mm_img_label_class(K1,K2,L1,L2,D1):
+    """
+    Generate label and class embeddings for two distributions
+    K1: number of classes for distribution 1
+    K2: number of classes for distribution 2
+    L1: number of labels for distribution 1
+    L2: number of labels for distribution 2 (The labels for distribution 2 is part of the labels for distribution 1)
+    D1: dimension of the label embeddings for distribution 1
+    """
+    mus_label_m1 = np.random.normal(size=(L1, D1))/np.sqrt(D1)
+    mus_label_m2 = mus_label_m1[:L2] # The labels for distribution 2 is part of the labels for distribution 1
+    mus_class_m1 = np.random.normal(size=(K1, D1))/np.sqrt(D1)
+    
+    labels_class_m1 = np.tile(np.arange(L1), int(K1/L1))
+    labels_class_m2 = np.tile(np.arange(L2), int(K2/L2))
+    
+    # Create mapping from distribution 2 to distribution 1 classes with same labels
+    mapping_m2_to_m1 = []
+    for k2 in range(K2):
+        label2 = labels_class_m2[k2]
+        # Find all classes in distribution 1 with matching label
+        matching_classes = np.where(labels_class_m1 == label2)[0]
+        # Store list of all matching class indices from distribution 1
+        mapping_m2_to_m1.append(matching_classes)
+    mapping_m2_to_m1 = np.array(mapping_m2_to_m1)
+    return mus_label_m1, mus_class_m1, labels_class_m1, mus_label_m2, labels_class_m2, mapping_m2_to_m1
 
 def generate_encoder_input(mus_class,eps,S):
     # Generate input data for the encoder
@@ -808,3 +836,486 @@ class EncoderDataset(IterableDataset):
         labels[np.arange(self.S), choices] = True
         return inputs, labels
         
+
+class OmniglotDataset(IterableDataset):
+    def __init__(self, root, K, S, eps, datasize):
+        """
+        IMAGE_SIZE = 105
+        N_CHARACTER_CLASSES = 1623 (964 + 659)
+        N_EXEMPLARS_PER_CLASS = 20
+        """
+        self.K = K
+        self.eps = eps
+        self.S = S
+        self.datasize = datasize
+        self.n_samples = 0
+        
+        
+        train_dataset = Omniglot(root, background=True)
+        eval_dataset = Omniglot(root, background=False)
+
+        # Merge the two datasets, only leave 100 classes as hold-out classes
+        self.data_train = []
+        labels_train = []
+        for img,label in train_dataset:
+            if label not in labels_train:
+                labels_train.append(label)
+                self.data_train.append(np.array(img).astype(np.float32) / 255.0)
+        len_train = len(self.data_train)
+        eval_list = list(eval_dataset)
+        for img,label in eval_list[:10600]:
+            new_label = label + len_train
+            if new_label not in labels_train:
+                labels_train.append(new_label)
+                self.data_train.append(np.array(img).astype(np.float32) / 255.0)
+        self.data_train = np.array(self.data_train[:K])
+        self.labels_train = np.array(labels_train[:K])
+
+        self.data_test = []
+        labels_test = []
+        label_0 = eval_list[10620][1]
+        for img,label in eval_list[10620:]:
+            new_label = label - label_0
+            if new_label not in labels_test:
+                labels_test.append(new_label)
+                self.data_test.append(np.array(img).astype(np.float32) / 255.0)
+        self.data_test = np.array(self.data_test)
+        self.labels_test = np.array(labels_test)
+
+    def __iter__(self):
+        while self.n_samples < self.datasize:
+            inputs, labels = self.generate_input()
+            # Convert to tensors and yield as a batch
+            yield inputs, labels
+            self.n_samples += 1
+            
+    def generate_input(self):
+        img_idxs = np.random.choice(len(self.data_train), size=(self.S,))
+        imgs = self.data_train[img_idxs]
+        noise = np.random.normal(0, self.eps, imgs.shape)
+        imgs = imgs + noise.astype(np.float32)
+        labels = np.zeros((self.S, len(self.data_train)), dtype=bool)
+        label_index = self.labels_train[img_idxs]
+        labels[np.arange(self.S), label_index] = True
+        return torch.FloatTensor(imgs), torch.FloatTensor(labels)
+
+class OmniglotMMDataset(IterableDataset):
+    def __init__(self, root, K2, mus_label_m1, mus_class_m1, mus_label_m2, labels_class_m2, mapping_m2_to_m1, N,S, eps1= 0.1, eps2 = 0.1, B= 0, p_B = 0, P1 = None, P2 = None, p_C = 0, flip_labels = False, output_target_labels = False, no_repeats = False, seq_labels = False, datasize = 0):
+        super().__init__()
+        self.mus_label_m1 = mus_label_m1
+        self.mus_class_m1 = mus_class_m1
+        self.mus_label_m2 = mus_label_m2
+        self.labels_class_m2 = labels_class_m2
+        self.mapping_m2_to_m1 = mapping_m2_to_m1
+        self.N = N
+        self.S = S
+        self.eps1 = eps1
+        self.eps2 = eps2
+        self.B = B
+        self.p_B = p_B
+        self.p_C = p_C
+        self.flip_labels = flip_labels
+        self.output_target_labels = output_target_labels
+        self.no_repeats = no_repeats
+        self.seq_labels = seq_labels
+        self.datasize = datasize
+        self.n_samples = 0
+        
+        L1 = mus_label_m1.shape[0]
+        L2 = mus_label_m2.shape[0]
+        K1 = mus_class_m1.shape[0]
+        D1 = mus_class_m1.shape[1]
+        
+        self.L1 = L1
+        self.L2 = L2
+        self.K1 = K1
+        self.K2 = K2
+        self.D1 = D1
+
+            
+        # Set up class distribution if not provided
+        if P1 is None or len(P1) != K1:
+            self.P1 = np.ones(K1)/K1
+        else:
+            self.P1 = P1    
+        if P2 is None or len(P2) != K2:
+            self.P2 = np.ones(K2)/K2
+        else:
+            self.P2 = P2
+            
+        # Set up OOD class embeddings
+        self.K_c1 = 128
+        if self.K_c1 < L1 or self.K_c1%L1 != 0:
+            print("K_c1 > L1 and K_c1%L1 == 0 is required")
+            raise ValueError("K_c1 > L1 and K_c1%L1 == 0 is required")
+
+        # Validate burstiness parameter
+        if B > 0 and N % B != 0:
+            raise ValueError("N must be divisible by B when B > 0")
+        if B >= N:
+            raise ValueError("B must be less than N")
+        if B == 0:
+            self.B = int(N/2)
+            self.p_B = 0
+            
+        # Read omniglot dataset
+        train_dataset = Omniglot(root, background=True)
+        eval_dataset = Omniglot(root, background=False)
+        
+        self.data_train = []
+        labels_train = []
+        for img,label in train_dataset:
+            if label not in labels_train:
+                labels_train.append(label)
+                self.data_train.append(np.array(img).astype(np.float32) / 255.0)
+        len_train = len(self.data_train)
+        eval_list = list(eval_dataset)
+        for img,label in eval_list[:10600]:
+            new_label = label + len_train
+            if new_label not in labels_train:
+                labels_train.append(new_label)
+                self.data_train.append(np.array(img).astype(np.float32) / 255.0)
+        self.data_train = np.array(self.data_train[:K2])
+
+        self.data_test = []
+        labels_test = []
+        label_0 = eval_list[10620][1]
+        for img,label in eval_list[10620:]:
+            new_label = label - label_0
+            if new_label not in labels_test:
+                labels_test.append(new_label)
+                self.data_test.append(np.array(img).astype(np.float32) / 255.0)
+        self.data_test = np.array(self.data_test)
+
+        
+    def generate_sequence(self):
+        S = self.S
+        N = self.N
+        B = self.B
+        P1 = self.P1
+        P2 = self.P2
+        K1 = self.K1
+        K2 = self.K2
+        L1 = self.L1
+        L2 = self.L2
+        D1 = self.D1
+        D2 = self.data_train.shape[-1]
+        K_c1 = self.K_c1
+        K_c2 = 128
+        mus_class_m1 = self.mus_class_m1
+        mus_label_m2 = self.mus_label_m2
+        labels_class_m2 = self.labels_class_m2
+        mapping_m2_to_m1 = self.mapping_m2_to_m1
+        p_B = self.p_B
+        p_C = self.p_C
+        eps1 = self.eps1
+        eps2 = self.eps2
+        flip_labels = self.flip_labels
+        output_target_labels = self.output_target_labels
+        no_repeats = self.no_repeats
+        seq_labels = self.seq_labels
+        
+        # Decide in final input dimension
+        inputs_mm = np.zeros((S,3*N+1,D1))
+        inputs_2 = np.zeros((S,N+1,D2,D2))
+        
+        # Generate OOD classes for distribution 1 (modality 1, here means llm) and distribution 2 (modality 2, here means vision)
+        mus_class_new1 = np.random.normal(size = (K_c1,D1))/np.sqrt(D1)
+        labels_class_new1 =  np.tile(np.arange(L1),int(K_c1/L1))
+        labels_class_new2 =  np.tile(np.arange(L2),int(K_c2/L2))
+        mapping_m2_to_m1_new = []
+        for k2 in range(K_c2):
+            label2 = labels_class_new2[k2]
+            matching_classes = np.where(labels_class_new1 == label2)[0]
+            mapping_m2_to_m1_new.append(matching_classes)
+        mapping_m2_to_m1_new = np.array(mapping_m2_to_m1_new)
+        # Choose the context-item classes for distribution 2, then choose the context-item classes for distribution 1 with the same labels
+        choices_2 = np.zeros((S,int(N/B)), dtype = int)
+        if no_repeats:
+            for s in range(S):
+                label_choices = np.random.choice(np.arange(L2), size = (int(N/B)), replace = False)
+                pos_choices = np.random.choice(np.arange(int(K2/L2)), size = (int(N/B)))
+                choices_2[s] = pos_choices*L2 + label_choices
+        else:
+            choices_2 = np.random.choice(np.arange(K2), size = (S,int(N/B)), p = P2)
+        choices_1 = np.zeros((S,int(N/B)), dtype = int)
+        for s in range(S):
+            choices = []
+            for k in choices_2[s]:
+                Pk=P1[mapping_m2_to_m1[k]]
+                Pk/=np.sum(Pk)
+                choices.append(np.random.choice(mapping_m2_to_m1[k], p = Pk))
+            choices_1[s] = np.array(choices)
+        # Interleave choices_1 and choices_2 into alternating pattern (x1,y1,x2,y2,...)
+        choices = np.zeros((S, 2*int(N/B)), dtype=int)
+        choices[:,0::2] = choices_1  # Even indices get choices_1 
+        choices[:,1::2] = choices_2  # Odd indices get choices_2
+
+        choices = np.tile(choices,B)
+        # Shuffle choices pairwise (keeping x,y pairs together)
+        for s in range(S):
+            # Reshape into pairs, shuffle pairs, then flatten back
+            pairs = choices[s].reshape(-1, 2)  # Shape: (N/B, 2)
+            np.random.shuffle(pairs)  # Shuffle along first dimension
+            choices[s] = pairs.flatten()  # Back to 1D array
+        choices_1 = choices[:,0::2]
+        choices_2 = choices[:,1::2]
+        
+        # Select target from distribution 2
+        targets_ind = np.random.choice(choices_2.shape[1], size = (S,))
+        targets = choices_2[np.arange(S),targets_ind]
+    
+        # Choose OOD context items classes for distribution 2 
+        choices_c2 = np.zeros((S,int(N/B)), dtype = int)
+        if no_repeats:
+            for s in range(S):
+                label_choices = np.random.choice(np.arange(L2), size = (int(N/B)), replace = False)
+                pos_choices = np.random.choice(np.arange(int(K_c2/L2)), size = (int(N/B)))
+                choices_c2[s] = pos_choices*L2 + label_choices
+        else:
+            choices_c2 = np.random.choice(np.arange(K_c2), size = (S,int(N/B)))
+        choices_c1 = np.zeros((S,int(N/B)), dtype = int)
+        for s in range(S):
+            choices_c = []
+            for k in choices_c2[s]:
+                choices_c.append(np.random.choice(mapping_m2_to_m1_new[k]))
+            choices_c1[s] = np.array(choices_c)
+        choices_c = np.zeros((S, 2*int(N/B)), dtype=int)
+        choices_c[:,0::2] = choices_c1  # Even indices get choices_c1 
+        choices_c[:,1::2] = choices_c2  # Odd indices get choices_c2
+        choices_c = np.tile(choices_c,B)
+        # Shuffle choices pairwise (keeping x,y pairs together)
+        for s in range(S):
+            # Reshape into pairs, shuffle pairs, then flatten back
+            pairs_c = choices_c[s].reshape(-1, 2)  # Shape: (N/B, 2)
+            np.random.shuffle(pairs_c)  # Shuffle along first dimension
+            choices_c[s] = pairs_c.flatten()  # Back to 1D array
+        choices_c1 = choices_c[:,0::2]
+        choices_c2 = choices_c[:,1::2]
+        
+        # Select OOD target from distribution 2
+        targets_c_ind = np.random.choice(choices_c2.shape[1], size = (S,))
+        targets_c = choices_c2[np.arange(S),targets_c_ind]
+        
+        # Determine if sequence is bursty and/or OOD [filt_B] means non-bursty,[~filt_B] means bursty, [filt_C] means in-distribution,[~filt_C] means ood
+        filt_B = np.random.uniform(size = S) > p_B
+        choices_2[filt_B] = np.random.choice(K2,size  = (np.sum(filt_B),N), p = P2)
+        choices_1[filt_B] = np.random.choice(K1,size  = (np.sum(filt_B),N), p = P1)
+        targets[filt_B] = np.random.choice(K2,size  = (np.sum(filt_B),), p = P2)
+        
+        filt_C = np.random.uniform(size = S) > p_C
+        
+        def add_noise_to_img(imgs):
+            noise = np.random.normal(0, self.eps2, imgs.shape)
+            imgs = imgs + noise.astype(np.float32)
+            return imgs
+        # Context item embeddings sampled from distribution 1
+        e_fac1 = 1/np.sqrt(1+eps1**2)
+        inputs_mm[filt_C,:-1:3,:] = (e_fac1*(mus_class_m1[choices_1] + eps1*np.random.normal(size = (S,N,D1))/np.sqrt(D1)))[filt_C]
+        inputs_2[filt_C,:-1,:] = add_noise_to_img(self.data_train[choices_2][filt_C])
+        # Label item embeddings sampled from distribution 2
+        if flip_labels:
+            wrong_label = (labels_class_m2 + 1)%L2
+            inputs_mm[filt_C,2:-1:3,:] = mus_label_m2[wrong_label][choices_2][filt_C]
+        else:
+            inputs_mm[filt_C,2:-1:3,:] = mus_label_m2[labels_class_m2][choices_2][filt_C]
+     
+        # Target item embeddings sampled from distribution 2
+        inputs_2[filt_C,-1,:] = add_noise_to_img(self.data_train[targets][filt_C])
+        
+        # OOD context item embeddings sampled from distribution 1
+        inputs_mm[~filt_C,:-1:3,:] = (e_fac1*(mus_class_new1[choices_c1] + eps1*np.random.normal(size = (S,N,D1))/np.sqrt(D1)))[~filt_C]
+        inputs_2[~filt_C,:-1] =  add_noise_to_img(self.data_test[choices_c2][~filt_C])
+        # OOD label item embeddings sampled from distribution 2
+        inputs_mm[~filt_C,2:-1:3,:] = mus_label_m2[labels_class_new2][choices_c2][~filt_C]
+        # OOD target item embeddings sampled from distribution 2
+        inputs_2[~filt_C,-1] = add_noise_to_img(self.data_test[targets_c][~filt_C])
+        
+        labels = np.zeros((S,L1),dtype= bool)
+        target_classes = np.zeros(S, dtype = int)
+        label_sequences = np.zeros((S, N+1), dtype=int)
+        
+        for s in range(S):
+            if filt_C[s]:
+                labels[s,labels_class_m2[targets[s]]] = True
+                target_classes[s] = targets[s]
+                label_sequences[s] = np.append(labels_class_m2[choices_2[s]],labels_class_m2[targets[s]])
+            else:
+                labels[s,labels_class_new2[targets_c[s]]] = True
+                target_classes[s] = -1
+                label_sequences[s] = np.append(labels_class_new2[choices_c2[s]],labels_class_new2[targets_c[s]])
+        if seq_labels:
+            return torch.FloatTensor(inputs_mm), torch.FloatTensor(inputs_2), torch.FloatTensor(labels), torch.FloatTensor(label_sequences)
+        elif output_target_labels:
+            return torch.FloatTensor(inputs_mm), torch.FloatTensor(inputs_2), torch.FloatTensor(labels), torch.LongTensor(target_classes)
+        else:
+            return torch.FloatTensor(inputs_mm), torch.FloatTensor(inputs_2), torch.FloatTensor(labels)
+        
+    def generate_test_sequence(self,S,B,p_B,p_C,flip_labels=False):
+        N = self.N
+        P1 = self.P1
+        P2 = self.P2
+        K1 = self.K1
+        K2 = self.K2
+        L1 = self.L1
+        L2 = self.L2
+        D1 = self.D1
+        D2 = self.data_train.shape[-1]
+        K_c1 = self.K_c1
+        K_c2 = 128
+        mus_class_m1 = self.mus_class_m1
+        mus_label_m2 = self.mus_label_m2
+        labels_class_m2 = self.labels_class_m2
+        mapping_m2_to_m1 = self.mapping_m2_to_m1
+        eps1 = self.eps1
+        eps2 = self.eps2
+        output_target_labels = self.output_target_labels
+        no_repeats = self.no_repeats
+        seq_labels = self.seq_labels
+        if B == 0:
+            B = int(N/2)
+            p_B = 0
+        
+        # Decide in final input dimension
+        inputs_mm = np.zeros((S,3*N+1,D1))
+        inputs_2 = np.zeros((S,N+1,D2,D2))
+        
+        # Generate OOD classes for distribution 1 (modality 1, here means llm) and distribution 2 (modality 2, here means vision)
+        mus_class_new1 = np.random.normal(size = (K_c1,D1))/np.sqrt(D1)
+        labels_class_new1 =  np.tile(np.arange(L1),int(K_c1/L1))
+        labels_class_new2 =  np.tile(np.arange(L2),int(K_c2/L2))
+        mapping_m2_to_m1_new = []
+        for k2 in range(K_c2):
+            label2 = labels_class_new2[k2]
+            matching_classes = np.where(labels_class_new1 == label2)[0]
+            mapping_m2_to_m1_new.append(matching_classes)
+        mapping_m2_to_m1_new = np.array(mapping_m2_to_m1_new)
+        # Choose the context-item classes for distribution 2, then choose the context-item classes for distribution 1 with the same labels
+        choices_2 = np.zeros((S,int(N/B)), dtype = int)
+        if no_repeats:
+            for s in range(S):
+                label_choices = np.random.choice(np.arange(L2), size = (int(N/B)), replace = False)
+                pos_choices = np.random.choice(np.arange(int(K2/L2)), size = (int(N/B)))
+                choices_2[s] = pos_choices*L2 + label_choices
+        else:
+            choices_2 = np.random.choice(np.arange(K2), size = (S,int(N/B)), p = P2)
+        choices_1 = np.zeros((S,int(N/B)), dtype = int)
+        for s in range(S):
+            choices = []
+            for k in choices_2[s]:
+                Pk=P1[mapping_m2_to_m1[k]]
+                Pk/=np.sum(Pk)
+                choices.append(np.random.choice(mapping_m2_to_m1[k], p = Pk))
+            choices_1[s] = np.array(choices)
+        # Interleave choices_1 and choices_2 into alternating pattern (x1,y1,x2,y2,...)
+        choices = np.zeros((S, 2*int(N/B)), dtype=int)
+        choices[:,0::2] = choices_1  # Even indices get choices_1 
+        choices[:,1::2] = choices_2  # Odd indices get choices_2
+
+        choices = np.tile(choices,B)
+        # Shuffle choices pairwise (keeping x,y pairs together)
+        for s in range(S):
+            # Reshape into pairs, shuffle pairs, then flatten back
+            pairs = choices[s].reshape(-1, 2)  # Shape: (N/B, 2)
+            np.random.shuffle(pairs)  # Shuffle along first dimension
+            choices[s] = pairs.flatten()  # Back to 1D array
+        choices_1 = choices[:,0::2]
+        choices_2 = choices[:,1::2]
+        
+        # Select target from distribution 2
+        targets_ind = np.random.choice(choices_2.shape[1], size = (S,))
+        targets = choices_2[np.arange(S),targets_ind]
+    
+        # Choose OOD context items classes for distribution 2 
+        choices_c2 = np.zeros((S,int(N/B)), dtype = int)
+        if no_repeats:
+            for s in range(S):
+                label_choices = np.random.choice(np.arange(L2), size = (int(N/B)), replace = False)
+                pos_choices = np.random.choice(np.arange(int(K_c2/L2)), size = (int(N/B)))
+                choices_c2[s] = pos_choices*L2 + label_choices
+        else:
+            choices_c2 = np.random.choice(np.arange(K_c2), size = (S,int(N/B)))
+        choices_c1 = np.zeros((S,int(N/B)), dtype = int)
+        for s in range(S):
+            choices_c = []
+            for k in choices_c2[s]:
+                choices_c.append(np.random.choice(mapping_m2_to_m1_new[k]))
+            choices_c1[s] = np.array(choices_c)
+        choices_c = np.zeros((S, 2*int(N/B)), dtype=int)
+        choices_c[:,0::2] = choices_c1  # Even indices get choices_c1 
+        choices_c[:,1::2] = choices_c2  # Odd indices get choices_c2
+        choices_c = np.tile(choices_c,B)
+        # Shuffle choices pairwise (keeping x,y pairs together)
+        for s in range(S):
+            # Reshape into pairs, shuffle pairs, then flatten back
+            pairs_c = choices_c[s].reshape(-1, 2)  # Shape: (N/B, 2)
+            np.random.shuffle(pairs_c)  # Shuffle along first dimension
+            choices_c[s] = pairs_c.flatten()  # Back to 1D array
+        choices_c1 = choices_c[:,0::2]
+        choices_c2 = choices_c[:,1::2]
+        
+        # Select OOD target from distribution 2
+        targets_c_ind = np.random.choice(choices_c2.shape[1], size = (S,))
+        targets_c = choices_c2[np.arange(S),targets_c_ind]
+        
+        # Determine if sequence is bursty and/or OOD [filt_B] means non-bursty,[~filt_B] means bursty, [filt_C] means in-distribution,[~filt_C] means ood
+        filt_B = np.random.uniform(size = S) > p_B
+        choices_2[filt_B] = np.random.choice(K2,size  = (np.sum(filt_B),N), p = P2)
+        choices_1[filt_B] = np.random.choice(K1,size  = (np.sum(filt_B),N), p = P1)
+        targets[filt_B] = np.random.choice(K2,size  = (np.sum(filt_B),), p = P2)
+        
+        filt_C = np.random.uniform(size = S) > p_C
+        
+        def add_noise_to_img(imgs):
+            noise = np.random.normal(0, self.eps2, imgs.shape)
+            imgs = imgs + noise.astype(np.float32)
+            return imgs
+        # Context item embeddings sampled from distribution 1
+        e_fac1 = 1/np.sqrt(1+eps1**2)
+        inputs_mm[filt_C,:-1:3,:] = (e_fac1*(mus_class_m1[choices_1] + eps1*np.random.normal(size = (S,N,D1))/np.sqrt(D1)))[filt_C]
+        inputs_2[filt_C,:-1,:] = add_noise_to_img(self.data_train[choices_2][filt_C])
+        # Label item embeddings sampled from distribution 2
+        if flip_labels:
+            wrong_label = (labels_class_m2 + 1)%L2
+            inputs_mm[filt_C,2:-1:3,:] = mus_label_m2[wrong_label][choices_2][filt_C]
+        else:
+            inputs_mm[filt_C,2:-1:3,:] = mus_label_m2[labels_class_m2][choices_2][filt_C]
+     
+        # Target item embeddings sampled from distribution 2
+        inputs_2[filt_C,-1,:] = add_noise_to_img(self.data_train[targets][filt_C])
+        
+        # OOD context item embeddings sampled from distribution 1
+        inputs_mm[~filt_C,:-1:3,:] = (e_fac1*(mus_class_new1[choices_c1] + eps1*np.random.normal(size = (S,N,D1))/np.sqrt(D1)))[~filt_C]
+        inputs_2[~filt_C,:-1] =  add_noise_to_img(self.data_test[choices_c2][~filt_C])
+        # OOD label item embeddings sampled from distribution 2
+        inputs_mm[~filt_C,2:-1:3,:] = mus_label_m2[labels_class_new2][choices_c2][~filt_C]
+        # OOD target item embeddings sampled from distribution 2
+        inputs_2[~filt_C,-1] = add_noise_to_img(self.data_test[targets_c][~filt_C])
+        
+        labels = np.zeros((S,L1),dtype= bool)
+        target_classes = np.zeros(S, dtype = int)
+        label_sequences = np.zeros((S, N+1), dtype=int)
+        
+        for s in range(S):
+            if filt_C[s]:
+                labels[s,labels_class_m2[targets[s]]] = True
+                target_classes[s] = targets[s]
+                label_sequences[s] = np.append(labels_class_m2[choices_2[s]],labels_class_m2[targets[s]])
+            else:
+                labels[s,labels_class_new2[targets_c[s]]] = True
+                target_classes[s] = -1
+                label_sequences[s] = np.append(labels_class_new2[choices_c2[s]],labels_class_new2[targets_c[s]])
+        if seq_labels:
+            return torch.FloatTensor(inputs_mm), torch.FloatTensor(inputs_2), torch.FloatTensor(labels), torch.FloatTensor(label_sequences)
+        elif output_target_labels:
+            return torch.FloatTensor(inputs_mm), torch.FloatTensor(inputs_2), torch.FloatTensor(labels), torch.LongTensor(target_classes)
+        else:
+            return torch.FloatTensor(inputs_mm), torch.FloatTensor(inputs_2), torch.FloatTensor(labels)
+        
+    def __iter__(self):
+        while self.n_samples < self.datasize:
+            inputs_mm, inputs_2, labels = self.generate_sequence()
+            # Convert to tensors and yield as a batch
+            yield inputs_mm, inputs_2, labels
+            self.n_samples += 1
+    

@@ -9,6 +9,7 @@ import torch.utils.checkpoint
 from torch import nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 from dataclasses import dataclass, field
+from einops.layers.torch import Rearrange
 
 @dataclass
 class ModelArgs:
@@ -517,7 +518,7 @@ class CNNEncoder(nn.Module):
         if bsz:
             features = features.view(bsz, seq_len, features.shape[-1])  # -> (batch, seq_len, feature_dim)
         return features
-
+    
 
 class MLLMTransformer(Transformer):
     def __init__(self, args: ModelArgs):
