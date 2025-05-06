@@ -145,7 +145,7 @@ if __name__ == "__main__":
         input_dim = L_pos + D1
         
    # Initialize wandb
-    prefix = f"./outs_torch/K1_{K1}_K2_{K2}_N{N}_D1_{D1}_D2_{D2}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_rope_theta{rope_theta}_freeze_layers{freeze_layers}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}_niters{niters}_n_epochs{n_epochs}"
+    prefix = f"./outs_torch/K1_{K1}_K2_{K2}_N{N}_D1_{D1}_D2_{D2}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_rope_theta{rope_theta}_freeze_layers{freeze_layers}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}_niters{niters}_n_epochs{n_epochs}_large_projector"
     if WANDB:
         wandb.init(project="ICL_torch",
                 name=f"run_{SEED}_{prefix.split('/')[-1]}",
@@ -181,7 +181,8 @@ if __name__ == "__main__":
                     "n_epochs": n_epochs,
                     "L_pos": L_pos,
                     "freeze_layers": freeze_layers,
-                    "ckpt_path": ckpt_path
+                    "ckpt_path": ckpt_path,
+                    "large_projector": True
                 })
 
     # Initialize model
