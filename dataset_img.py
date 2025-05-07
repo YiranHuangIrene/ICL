@@ -411,6 +411,9 @@ class OmniglotMMDataset(IterableDataset):
         seq_labels = self.seq_labels
         n_per_class = self.n_img_per_class
         img_size = self.D2
+        if B == 0:
+            B = int(N/2)
+            p_B = 0
         
         # Decide in final input dimension
         inputs_mm = np.zeros((S,3*N+1,D1))
