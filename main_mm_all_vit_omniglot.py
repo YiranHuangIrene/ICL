@@ -4,7 +4,8 @@ import time
 import wandb
 import torch
 import numpy as np
-from dataset import SingleOmniglotMMDataset, FullOmniglotMMDataset, get_mm_img_label_class,CIFAR100MMDataset
+from dataset_img import OmniglotMMDataset,OmniglotDatasetArgs
+from dataset import get_mm_img_label_class
 from model import ModelArgs, MLLMTransformer
 from vit import  ViTENcoderArgs, ViTEncoder
 from torch.utils.data import DataLoader
@@ -138,17 +139,22 @@ if __name__ == "__main__":
     D2 = int(sys.argv[5])
     L1 = int(sys.argv[6])
     L2 = int(sys.argv[7])
-    alpha1 = float(sys.argv[8])
-    alpha2 = float(sys.argv[9])  # Zipf's law exponent
-    B = int(sys.argv[10])  # Burstiness
-    p_B = float(sys.argv[11])  # Fraction of bursty sequences
-    p_C = float(sys.argv[12])  # Fraction of OOD sequences
-    eps0 = float(sys.argv[13])  # Within-class variance for pretraining the encoder
-    eps1 = float(sys.argv[14])
-    eps2 = float(sys.argv[15])  # Within-class variance
-    no_repeats = bool(int(sys.argv[16]))  # Whether repeated items are allowed in the context
-    datasetname = sys.argv[17]
-    sample_method = sys.argv[18]
+    alpha0 = float(sys.argv[8])
+    alpha1 = float(sys.argv[9])
+    alpha2 = float(sys.argv[10])  # Zipf's law exponent
+    B = int(sys.argv[11])  # Burstiness
+    p_B = float(sys.argv[12])  # Fraction of bursty sequences
+    p_C = float(sys.argv[13])  # Fraction of OOD sequences
+    eps0 = float(sys.argv[14])  # Within-class variance for pretraining the encoder
+    eps1 = float(sys.argv[15])
+    eps2 = float(sys.argv[16])  # Within-class variance
+    # Image dataset parameters
+    n_img_per_class = int(sys.argv[17])
+    augment = bool(int(sys.argv[18]))
+    img_size = 105
+    patch_size = 15
+    no_repeats = False
+    
     
     S = 512  # Number of sequences in the test set
     Nmax = 32  # Maximum number of item-label pairs in the context
@@ -169,13 +175,13 @@ if __name__ == "__main__":
     freeze_encoder = bool(int(sys.argv[27]))
     ckpt_path = sys.argv[28]
     root = os.path.dirname(os.path.realpath(__file__))
-    if datasetname == "omniglot":
-        if sample_method == "single":
-            ckpt_path_enc = f"{root}/outs_encoder_vit/K{K2}_output_dim{D2}_depth2_heads1_niter5000/seed_0/ckpt_4999.pt"
-        elif sample_method == "full":
-            ckpt_path_enc = f"{root}/outs_encoder_vit/K{K2}_samplefull_eps{eps0}_output_dim64_depth2_heads1_niter50000/seed_0/ckpt_49999.pt"
-    elif datasetname == "cifar100":
-        ckpt_path_enc = f"{root}/outs_encoder_vit/dataset_cifar100_K{K2}_samplefull_eps{eps0}_output_dim64_depth2_heads1_niter50000/seed_0/ckpt_49999.pt"
+    if eps0 == 0:
+        iterations = 5000
+    elif n_img_per_class == 8 and eps0 != 0:
+        iterations = 8000
+    else:
+        iterations = 12000
+    ckpt_path_enc = f"{root}/outs_encoder_vit_omniglot/K_{K2}_n_img_per_class_{n_img_per_class}_eps_{eps0}_alpha_{alpha0}_augment_{augment}_patch_size_{patch_size}_output_dim_{D2}_depth_2_heads_1_niter_{iterations}/seed_0/ckpt_{iterations-1}.pt"
 
     # Training parameters
     niters = 150000  # Number of iterations
@@ -195,14 +201,18 @@ if __name__ == "__main__":
         input_dim = L_pos + D1
         
    # Initialize wandb
-    prefix = f"./outs_torch/K1_{K1}_K2_{K2}_sample_{sample_method}_N{N}_D1_{D1}_D2_{D2}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps0{eps0}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_encoder_{encoder}_freeze_layers{freeze_layers}_freeze_encoder{freeze_encoder}_n_heads{n_heads}_n_layers{n_layers}_niters{niters}"
+    prefix = f"./outs_torch/Omniglot_K2_{K2}_n_img_per_class_{n_img_per_class}_eps_{eps0}_alpha_{alpha0}_augment_{augment}_output_dim_{D2}_MM_K1_{K1}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_encoder_{encoder}_freeze_layers{freeze_layers}_freeze_encoder{freeze_encoder}_n_heads{n_heads}_n_layers{n_layers}_niters{niters}"
     if WANDB:
-        wandb.init(project="ICL_torch",
+        wandb.init(project="ICL_torch_omniglot",
                 name=f"run_{SEED}_{prefix.split('/')[-1]}",
                 config={
                     "K1": K1,
                     "K2": K2,
-                    "sample_method": sample_method,
+                    "n_img_per_class": n_img_per_class,
+                    "eps0": eps0,
+                    "alpha0": alpha0,
+                    "augment": augment,
+                    "output_dim": D2,
                     "N": N,
                     "D1": D1,
                     "D2": D2,
@@ -215,7 +225,6 @@ if __name__ == "__main__":
                     "B": B,
                     "pB": p_B,
                     "pC": p_C,
-                    "eps0": eps0,
                     "eps1": eps1,
                     "eps2": eps2,
                     "no_repeats": no_repeats,
@@ -283,14 +292,10 @@ if __name__ == "__main__":
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     # Initialize datasets
+    print("Generating training data...")
+    dataset_args = OmniglotDatasetArgs(root=root, K=K2, n_img_per_class=n_img_per_class, eps=eps0, alpha=alpha0, augment=augment)
     mus_label_m1, mus_class_m1, labels_class_m1, mus_label_m2, labels_class_m2, mapping_m2_to_m1 = get_mm_img_label_class(K1=K1,K2=K2,L1=L1,L2=L2,D1=D1)
-    if datasetname == "omniglot":
-        if sample_method == "single":
-            train_dataset = SingleOmniglotMMDataset(root=root, K2=K2,mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=batch_size,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B=B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, datasize=niters)
-        elif sample_method == "full":
-            train_dataset = FullOmniglotMMDataset(root=root, K2=K2,mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=batch_size,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B=B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, datasize=niters)
-    elif datasetname == "cifar100":
-        train_dataset = CIFAR100MMDataset(root=root, K2=K2,mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=batch_size,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B=B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, datasize=niters)
+    train_dataset = OmniglotMMDataset(dataset_args, mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=batch_size,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B=B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, datasize=niters)
     train_loader = DataLoader(train_dataset, batch_size=None,num_workers=16)
     print("Generating test data...")
     test_data = train_dataset.generate_test_sequence(S=S,B=B, p_B = p_B, p_C = p_C)

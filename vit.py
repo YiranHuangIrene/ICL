@@ -10,6 +10,7 @@ class ViTENcoderArgs:
     image_size: int = 105
     patch_size: int = 15
     num_classes: int = 256
+    channels: int = 1
     dim: int = 64
     depth: int = 2
     heads: int = 1
@@ -84,11 +85,12 @@ class Transformer(nn.Module):
         return self.norm(x)
 
 class ViTEncoder(nn.Module):
-    def __init__(self, args, channels = 1, dropout = 0., emb_dropout = 0.):
+    def __init__(self, args, dropout = 0., emb_dropout = 0.):
         super().__init__()
         image_size = args.image_size
         patch_size = args.patch_size
         num_classes = args.num_classes
+        channels = args.channels
         dim = args.dim
         depth = args.depth
         heads = args.heads
@@ -143,9 +145,11 @@ class ViTEncoder(nn.Module):
 
     def extract_features(self, img):
         bsz = None
-        if len(img.shape) == 4:
+        if len(img.shape) == 4 and img.shape[1] != 3:
             bsz, seq_len, h, w = img.shape
             img = img.view(bsz * seq_len, 1, h, w)
+        elif len(img.shape) == 4 and img.shape[1] == 3:
+            img = img
         elif len(img.shape) == 3:
             img = img.unsqueeze(1)
         x = self.to_patch_embedding(img)
