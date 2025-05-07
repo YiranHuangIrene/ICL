@@ -4,7 +4,7 @@ import time
 import wandb
 import torch
 import numpy as np
-from dataset import SingleOmniglotMMDataset, FullOmniglotMMDataset, get_mm_img_label_class
+from dataset import SingleOmniglotMMDataset, FullOmniglotMMDataset, get_mm_img_label_class,CIFAR100MMDataset
 from model import ModelArgs, MLLMTransformer
 from vit import  ViTENcoderArgs, ViTEncoder
 from torch.utils.data import DataLoader
@@ -124,7 +124,7 @@ def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_d
         
 if __name__ == "__main__":
     # Set up CUDA and random seeds
-    device = torch.device(f"cuda:{int(sys.argv[31])}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{int(sys.argv[32])}" if torch.cuda.is_available() else "cpu")
     SEED = 0
     torch.manual_seed(SEED)
     np.random.seed(SEED)
@@ -147,7 +147,8 @@ if __name__ == "__main__":
     eps1 = float(sys.argv[14])
     eps2 = float(sys.argv[15])  # Within-class variance
     no_repeats = bool(int(sys.argv[16]))  # Whether repeated items are allowed in the context
-    sample_method = sys.argv[17]
+    datasetname = sys.argv[17]
+    sample_method = sys.argv[18]
     
     S = 512  # Number of sequences in the test set
     Nmax = 32  # Maximum number of item-label pairs in the context
@@ -157,30 +158,35 @@ if __name__ == "__main__":
     P2 /= np.sum(P2)  # Normalized power law distribution
     
     # Model Parameters
-    n_heads = int(sys.argv[18])  # Number of attention heads
-    n_layers = int(sys.argv[19])  # Number of transformer layers
-    rope = bool(int(sys.argv[20]))  # Whether to use RoPE
-    rope_theta = int(sys.argv[21])  # Rope base
-    rms_norm = bool(int(sys.argv[22])) # Whether to use RMS normalization
-    L_pos = int(sys.argv[23])
-    encoder = sys.argv[24] # which encoder to use
-    freeze_layers = bool(int(sys.argv[25]))
-    freeze_encoder = bool(int(sys.argv[26]))
-    ckpt_path = sys.argv[27]
+    n_heads = int(sys.argv[19])  # Number of attention heads
+    n_layers = int(sys.argv[20])  # Number of transformer layers
+    rope = bool(int(sys.argv[21]))  # Whether to use RoPE
+    rope_theta = int(sys.argv[22])  # Rope base
+    rms_norm = bool(int(sys.argv[23])) # Whether to use RMS normalization
+    L_pos = int(sys.argv[24])
+    encoder = sys.argv[25] # which encoder to use
+    freeze_layers = bool(int(sys.argv[26]))
+    freeze_encoder = bool(int(sys.argv[27]))
+    ckpt_path = sys.argv[28]
     root = os.path.dirname(os.path.realpath(__file__))
-    ckpt_path_enc = f"{root}/outs_encoder_vit/K{K2}_output_dim{D2}_depth2_heads1_niter5000/seed_0/ckpt_4999.pt"
-
+    if datasetname == "omniglot":
+        if sample_method == "single":
+            ckpt_path_enc = f"{root}/outs_encoder_vit/K{K2}_output_dim{D2}_depth2_heads1_niter5000/seed_0/ckpt_4999.pt"
+        elif sample_method == "full":
+            ckpt_path_enc = f"{root}/outs_encoder_vit/K{K2}_samplefull_eps{eps0}_output_dim64_depth2_heads1_niter50000/seed_0/ckpt_49999.pt"
+    elif datasetname == "cifar100":
+        ckpt_path_enc = f"{root}/outs_encoder_vit/dataset_cifar100_K{K2}_samplefull_eps{eps0}_output_dim64_depth2_heads1_niter50000/seed_0/ckpt_49999.pt"
 
     # Training parameters
     niters = 150000  # Number of iterations
     n_epochs = 1  # Number of epochs
-    batch_size = int(sys.argv[28])
+    batch_size = int(sys.argv[29])
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
-    optimizer = sys.argv[29]
+    optimizer = sys.argv[30]
     print_every = 100  # Print every n iterations
     ckpt_store_freq = 10000 # Store every n iterations
-    save_ckpt = bool(int(sys.argv[30]))
+    save_ckpt = bool(int(sys.argv[31]))
     
 
     if rope:
@@ -278,10 +284,13 @@ if __name__ == "__main__":
 
     # Initialize datasets
     mus_label_m1, mus_class_m1, labels_class_m1, mus_label_m2, labels_class_m2, mapping_m2_to_m1 = get_mm_img_label_class(K1=K1,K2=K2,L1=L1,L2=L2,D1=D1)
-    if sample_method == "single":
-        train_dataset = SingleOmniglotMMDataset(root=root, K2=K2,mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=batch_size,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B=B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, datasize=niters)
-    elif sample_method == "full":
-        train_dataset = FullOmniglotMMDataset(root=root, K2=K2,mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=batch_size,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B=B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, datasize=niters)
+    if datasetname == "omniglot":
+        if sample_method == "single":
+            train_dataset = SingleOmniglotMMDataset(root=root, K2=K2,mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=batch_size,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B=B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, datasize=niters)
+        elif sample_method == "full":
+            train_dataset = FullOmniglotMMDataset(root=root, K2=K2,mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=batch_size,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B=B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, datasize=niters)
+    elif datasetname == "cifar100":
+        train_dataset = CIFAR100MMDataset(root=root, K2=K2,mus_label_m1=mus_label_m1, mus_class_m1=mus_class_m1, mus_label_m2=mus_label_m2, labels_class_m2=labels_class_m2, mapping_m2_to_m1=mapping_m2_to_m1, N=N,S=batch_size,eps1=eps1,eps2=eps2, P1 = P1, P2 = P2, B=B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, datasize=niters)
     train_loader = DataLoader(train_dataset, batch_size=None,num_workers=16)
     print("Generating test data...")
     test_data = train_dataset.generate_test_sequence(S=S,B=B, p_B = p_B, p_C = p_C)

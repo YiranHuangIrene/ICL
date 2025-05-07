@@ -76,9 +76,9 @@ if __name__ == "__main__":
     save_ckpt = bool(int(sys.argv[12]))
     lr = 1e-3
     weight_decay = 1e-6 
-    print_every = 100
-    val_every = 100
-    save_every = 10000
+    print_every = 500
+    val_every = 500
+    save_every = niter
     prefix = f"./outs_encoder_vit/dataset_{datasetname}_K{K}_sample{sample_method}_eps{eps}_output_dim{output_dim}_depth{depth}_heads{heads}_niter{niter}"
     if WANDB:
             import wandb
