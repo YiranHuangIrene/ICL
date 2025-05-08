@@ -174,7 +174,7 @@ class OmniglotMMDataset(IterableDataset):
             self.p_B = 0
         
         # Set up image dataset
-        self.n_img_per_class = imgargs.n_img_per_class
+        
         self.eps0 = imgargs.eps
         self.alpha0 = imgargs.alpha
         self.augment = imgargs.augment
@@ -196,6 +196,7 @@ class OmniglotMMDataset(IterableDataset):
         img_size = char_to_imgs[0][0].shape[-1]
         n_img_all = len(char_to_imgs[0])
         self.n_img_all = n_img_all
+        self.n_img_per_class = n_img_all - 5
         self.D2 = img_size
         
         all_labels = list(char_to_imgs.keys())
@@ -409,7 +410,7 @@ class OmniglotMMDataset(IterableDataset):
         output_target_labels = self.output_target_labels
         no_repeats = self.no_repeats
         seq_labels = self.seq_labels
-        n_per_class = self.n_img_per_class
+        n_per_class = 5
         img_size = self.D2
         if B == 0:
             B = int(N/2)
@@ -518,7 +519,7 @@ class OmniglotMMDataset(IterableDataset):
             for j in range(N):
                 c = choices_2[i, j]
                 idx = sample_idxs[i, j]
-                sampled[i, j] = self.class_to_imgs_train[c][idx]
+                sampled[i, j] = self.class_to_imgs_eval[c][idx]
         inputs_2[filt_C,:-1,:] = add_noise_to_img(sampled[filt_C])
         # Label item embeddings sampled from distribution 2
         if flip_labels:
@@ -529,7 +530,7 @@ class OmniglotMMDataset(IterableDataset):
      
         # Target item embeddings sampled from distribution 2
         sample_idxs = np.random.randint(0, n_per_class, size=(S,))
-        sampled = np.stack([self.class_to_imgs_train[c][idx] for c, idx in zip(targets, sample_idxs)], axis=0)
+        sampled = np.stack([self.class_to_imgs_eval[c][idx] for c, idx in zip(targets, sample_idxs)], axis=0)
         inputs_2[filt_C,-1,:] = add_noise_to_img(sampled[filt_C])
         
         # OOD context item embeddings sampled from distribution 1
