@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-WANDB = False
+WANDB = True
 
 def accuracy(outputs, labels, flip_labels=False, L2=None):
     predictions = F.softmax(outputs, dim=-1)
