@@ -175,7 +175,7 @@ if __name__ == "__main__":
     freeze_encoder = bool(int(sys.argv[27]))
     ckpt_path = sys.argv[28]
     root = os.path.dirname(os.path.realpath(__file__))
-    if eps0 == 0:
+    if eps0 == 0 and augment == False and alpha0 == 0.:
         iterations = 5000
     elif n_img_per_class == 8 and eps0 != 0:
         iterations = 8000
@@ -245,7 +245,9 @@ if __name__ == "__main__":
                     "freeze_layers": freeze_layers,
                     "freeze_encoder": freeze_encoder,
                     "ckpt_path": ckpt_path,
-                    "ckpt_path_enc":ckpt_path_enc
+                    "ckpt_path_enc":ckpt_path_enc,
+                    "test_img": "val_img",
+                    "train_img": "all_img"
                 })
 
     # Initialize model
