@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-WANDB = False
+WANDB = True
 
 def accuracy(outputs, labels, flip_labels=False, L2=None):
     predictions = F.softmax(outputs, dim=-1)
@@ -193,7 +193,7 @@ if __name__ == "__main__":
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
     optimizer = sys.argv[39]
-    print_every = 100  # Print every n iterations
+    print_every = 1000  # Print every n iterations
     ckpt_store_freq = 10000 # Store every n iterations
     save_ckpt = bool(int(sys.argv[40]))
     
