@@ -10,8 +10,8 @@ import sys
 import os
 
 WANDB = True
-
-def train_model(model, dataloader, val_loader=None, lr=1e-3, weight_decay=1e-5, device=None, prefix=None, print_every=100, val_every=100, save_ckpt=True, save_every=1000):
+def train_model(model, dataloader, val_loader=None, lr=1e-3, weight_decay=1e-5,l1_lambda=0.0,
+                l2_lambda=0.0, device=None, prefix=None, print_every=100, val_every=100, save_ckpt=True, save_every=1000):
     model.to(device)
     opt = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     criterion = nn.CrossEntropyLoss()
@@ -23,6 +23,12 @@ def train_model(model, dataloader, val_loader=None, lr=1e-3, weight_decay=1e-5, 
         opt.zero_grad()
         logits = model(inputs)
         loss = criterion(logits, labels)
+        if l1_lambda > 0:
+            l1_norm = sum(p.abs().sum() for p in model.parameters())
+            loss = loss + l1_lambda * l1_norm
+        if l2_lambda > 0:
+            l2_norm = sum(p.pow(2).sum() for p in model.parameters())
+            loss = loss + l2_lambda * l2_norm
         loss.backward()
         opt.step()
         preds = logits.argmax(dim=1)
@@ -74,23 +80,30 @@ if __name__ == "__main__":
     eps = float(sys.argv[3])
     alpha = float(sys.argv[4])
     augment = bool(int(sys.argv[5]))
+    rotate = int(sys.argv[6])
+    flip_h = float(sys.argv[7])
+    flip_v = float(sys.argv[8])
+    crop = float(sys.argv[9])
     img_size = 105
-    patch_size = int(sys.argv[6])
+    patch_size = int(sys.argv[10])
     # Parameters for the model
-    output_dim = int(sys.argv[7])
-    depth = int(sys.argv[8])
-    heads = int(sys.argv[9])
+    output_dim = int(sys.argv[11])
+    depth = int(sys.argv[12])
+    heads = int(sys.argv[13])
     # Parameters for the training
-    niter = int(sys.argv[10])
-    batch_size = int(sys.argv[11])
-    save_ckpt = bool(sys.argv[12])
+    dropout = float(sys.argv[14])
+    l1_lambda = float(sys.argv[15])
+    l2_lambda = float(sys.argv[16])
+    niter = int(sys.argv[17])
+    batch_size = int(sys.argv[18])
+    save_ckpt = bool(int(sys.argv[19]))
     lr = 1e-3
     weight_decay = 1e-5
     print_every = 100
     val_every = 100
     save_every = niter-1 if save_ckpt else 0
     
-    prefix = f"./outs_encoder_vit_omniglot/K_{K}_n_img_per_class_{n_img_per_class}_eps_{eps}_alpha_{alpha}_augment_{augment}_patch_size_{patch_size}_output_dim_{output_dim}_depth_{depth}_heads_{heads}_niter_{niter}"
+    prefix = f"./outs_encoder_vit_omniglot/K_{K}_n_img_per_class_{n_img_per_class}_eps_{eps}_alpha_{alpha}_augment_{augment}_rotate_{rotate}_flip_h_{flip_h}_flip_v_{flip_v}_crop_{crop}_patch_size_{patch_size}_output_dim_{output_dim}_depth_{depth}_heads_{heads}_dropout_{dropout}_l1_lambda_{l1_lambda}_l2_lambda_{l2_lambda}_niter_{niter}"
     if WANDB:
         import wandb
         wandb.init(project="ICL_encoder_omniglot", 
@@ -101,10 +114,17 @@ if __name__ == "__main__":
                        "eps": eps,
                        "alpha": alpha,
                        "augment": augment,
+                       "flip_h": flip_h,
+                        "flip_v": flip_v,
+                        "rotate": rotate,
+                        "crop": crop,
                        "patch_size": patch_size,
                        "output_dim": output_dim,
                        "depth": depth,
                        "heads": heads,
+                       "dropout": dropout,
+                       "l1_lambda": l1_lambda,
+                        "l2_lambda": l2_lambda,
                        "niter": niter,
                        "batch_size": batch_size,
                        "lr": lr,
@@ -119,19 +139,20 @@ if __name__ == "__main__":
         dim=output_dim,
         depth=depth,
         heads=heads,
+        dropout=dropout,
     )
     model = ViTEncoder(model_args)
     print(f"Model: {model}")
     
     # Initialize the dataset
-    dataset_args = OmniglotDatasetArgs(root=root, K=K, n_img_per_class=n_img_per_class, eps=eps, alpha=alpha, augment=augment)
+    dataset_args = OmniglotDatasetArgs(root=root, K=K, n_img_per_class=n_img_per_class, eps=eps, alpha=alpha, augment=augment,rotate=rotate, flip_h=flip_h, flip_v=flip_v, crop=crop)
     dataset = OmniglotDataset(dataset_args, S=batch_size, datasize=niter)
     val_dataset = dataset.generate_val()
     val_dataset = TensorDataset(val_dataset[0], val_dataset[1])
     train_loader = DataLoader(dataset, batch_size=None, num_workers=4)
     val_dataloader = DataLoader(val_dataset, batch_size=10*batch_size, num_workers=1)
     # Initialize the training
-    train_model(model=model, dataloader=train_loader, val_loader=val_dataloader, lr=lr, weight_decay=weight_decay, device=device, prefix=prefix, print_every=print_every, val_every=val_every, save_ckpt=save_ckpt, save_every=save_every)
+    train_model(model=model, dataloader=train_loader, val_loader=val_dataloader, lr=lr, weight_decay=weight_decay, device=device, prefix=prefix, print_every=print_every, val_every=val_every, save_ckpt=save_ckpt, save_every=save_every,l1_lambda=l1_lambda, l2_lambda=l2_lambda)
     
     
     
