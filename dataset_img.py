@@ -3,6 +3,7 @@ import math
 import torch
 from torch.utils.data import IterableDataset, get_worker_info
 from torchvision.datasets import Omniglot
+from torchvision.transforms import v2
 from dataclasses import dataclass, field
 from scipy.ndimage import rotate
 
@@ -14,6 +15,12 @@ class OmniglotDatasetArgs:
     eps: float = 0.1
     alpha: float = 0
     augment: bool = False
+    rotate: int = 10
+    flip_h: float = 0.5
+    flip_v: float = 0.5
+    crop: float = 0.8
+    
+    
 
     
 class OmniglotDataset(IterableDataset):
@@ -34,7 +41,6 @@ class OmniglotDataset(IterableDataset):
         self.root = args.root
         self.S = S
         self.datasize = datasize
-       
         
         from collections import defaultdict
         char_to_imgs = defaultdict(list)
@@ -51,13 +57,31 @@ class OmniglotDataset(IterableDataset):
             img_arr = np.array(img).astype(np.float32) / 255.0
             char_to_imgs[label].append(img_arr)
             
+        self.img_size = char_to_imgs[0][0].shape[-1]
         all_labels = list(char_to_imgs.keys())
         selected_labels_train = all_labels[:self.K]
         self.class_to_imgs_train = {i: np.array(char_to_imgs[label])[:self.n_img_per_class] for i, label in enumerate(selected_labels_train)}
         self.class_to_imgs_eval = {i: np.array(char_to_imgs[label])[-5:] for i, label in enumerate(selected_labels_train)} # select last 5 images for evaluation      
         selected_labels_test = all_labels[-128:] # Hold out 128 classes for multimodal evaluation
         self.class_to_imgs_test = {i: np.array(char_to_imgs[label]) for i, label in enumerate(selected_labels_test)}
-       
+        
+        if self.augment:
+            tf_list = []
+            if args.rotate > 0:
+                tf_list.append(v2.RandomRotation(degrees=args.rotate))
+            if args.flip_h > 0:
+                tf_list.append(v2.RandomHorizontalFlip(p=args.flip_h))
+            if args.flip_v > 0:
+                tf_list.append(v2.RandomVerticalFlip(p=args.flip_v))
+            if args.crop > 0:
+                tf_list.append(v2.RandomApply(
+                    transforms=[
+                            v2.CenterCrop(size=0.8*self.img_size),
+                            v2.Resize(size=self.img_size)
+                        ],
+                    p=args.crop
+                ))
+            self.augment_tf = v2.Compose(tf_list)
 
     def __iter__(self):
         worker = get_worker_info()
@@ -89,11 +113,12 @@ class OmniglotDataset(IterableDataset):
             imgs = imgs + noise
         # Apply augmentations by rotating the images by -10 to 10 degrees
         if self.augment:
-            rotated = np.empty_like(imgs)
+            imgs = torch.from_numpy(imgs).unsqueeze(1)
+            img_tf = torch.zeros_like(imgs)
             for i, img in enumerate(imgs):
-                angle = np.random.uniform(-10, 10)
-                rotated[i] = rotate(img, angle, reshape=False, order=1, mode='reflect')
-            imgs = rotated
+                img = self.augment_tf(img)
+                img_tf[i] = img
+            imgs = img_tf.squeeze(1)
         # Convert labels to one-hot encoding
         labels = np.eye(self.K)[class_idxs]
         return torch.FloatTensor(imgs), torch.FloatTensor(labels)

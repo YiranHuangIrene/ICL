@@ -14,6 +14,7 @@ class ViTENcoderArgs:
     dim: int = 64
     depth: int = 2
     heads: int = 1
+    dropout: float = 0.
 
 class FeedForward(nn.Module):
     def __init__(self, dim, hidden_dim, dropout = 0.):
@@ -85,7 +86,7 @@ class Transformer(nn.Module):
         return self.norm(x)
 
 class ViTEncoder(nn.Module):
-    def __init__(self, args, dropout = 0., emb_dropout = 0.):
+    def __init__(self, args):
         super().__init__()
         image_size = args.image_size
         patch_size = args.patch_size
@@ -98,6 +99,8 @@ class ViTEncoder(nn.Module):
         dim_head = args.dim // args.heads
         image_height = image_width = image_size
         patch_height = patch_width = patch_size
+        dropout = args.dropout
+        emb_dropout = args.dropout
 
         assert image_height % patch_height == 0 and image_width % patch_width == 0, 'Image dimensions must be divisible by the patch size.'
 
