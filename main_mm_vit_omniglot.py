@@ -204,7 +204,7 @@ if __name__ == "__main__":
         input_dim = L_pos + D1
         
    # Initialize wandb
-    prefix = f"./outs_torch/Omniglot_K2_{K2}_n_img_per_class_{n_img_per_class}_eps_{eps0}_alpha_{alpha0}_augment_{augment}_output_dim_{D2}_MM_K1_{K1}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_encoder_{encoder}_freeze_layers{freeze_layers}_freeze_encoder{freeze_encoder}_n_heads{n_heads}_n_layers{n_layers}_niters{niters}"
+    prefix = f"./outs_torch/Omniglot_K2_{K2}_n_img_per_class_{n_img_per_class}_eps_{eps0}_alpha_{alpha0}_augment_{augment}_rotate_{rotate}_flip_h_{flip_h}_flip_v_{flip_v}_crop_{crop}_dropout_{dropout}_l1_lambda_{l1_lambda}_l2_lambda_{l2_lambda}_output_dim_{D2}_MM_K1_{K1}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_encoder_{encoder}_freeze_layers{freeze_layers}_freeze_encoder{freeze_encoder}_n_heads{n_heads}_n_layers{n_layers}_niters{niters}"
     if WANDB:
         wandb.init(project="ICL_torch_omniglot",
                 name=f"run_{SEED}_{prefix.split('/')[-1]}",
