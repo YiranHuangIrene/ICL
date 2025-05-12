@@ -76,6 +76,9 @@ def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_d
     model.to(device)
     loss_criterion = torch.nn.CrossEntropyLoss()
     global_iter = 0
+    best_icl_1_acc = 0.0     
+    best_icl_2_acc = 0.0  
+    best_iwl_acc = 0.0 
     for epoch in range(n_epochs):
         print(f"Epoch {epoch}")
         for n, batch in tqdm(enumerate(train_loader), total=niters):
@@ -117,8 +120,17 @@ def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_d
                     loss_ic, acc_ic = evaluate(model, test_ic_data, flip_labels=False, device=device)
                     loss_ic2, acc_ic2 = evaluate(model, test_ic2_data, flip_labels=True, device=device,L2=L2)
                     loss_iw, acc_iw = evaluate(model, test_iw_data, flip_labels=False, device=device)
+                if acc_ic > best_icl_1_acc:
+                    best_icl_1_acc = acc_ic
+                if acc_ic2 > best_icl_2_acc:
+                    best_icl_2_acc = acc_ic2
+                if acc_iw > best_iwl_acc:
+                    best_iwl_acc = acc_iw
                 print(f"Epoch {epoch}, Iteration {n}: Train loss: {loss:.4f}, Train acc: {acc:.4f}, Test loss: {loss_test:.4f}, Test acc: {acc_test:.4f}, IC loss: {loss_ic:.4f}, IC acc: {acc_ic:.4f}, IC2 loss: {loss_ic2:.4f}, IC2 acc: {acc_ic2:.4f}, IW loss: {loss_iw:.4f}, IW acc: {acc_iw:.4f}")
                 if WANDB:
+                    wandb.run.summary["best_icl_1_acc"] = best_icl_1_acc
+                    wandb.run.summary["best_icl_2_acc"] = best_icl_2_acc
+                    wandb.run.summary["best_iwl_acc"] = best_iwl_acc
                     wandb.log({"Epoch": epoch, "Iteration": n, "global_iter": global_iter, "Train_Loss": loss, "Train_Accuracy": acc, "Test_Loss": loss_test, "Test_Accuracy": acc_test, "IC_Loss": loss_ic, "IC_Accuracy": acc_ic, "IC2_Loss": loss_ic2, "IC2_Accuracy": acc_ic2, "IW_Loss": loss_iw, "IW_Accuracy": acc_iw})
             global_iter += 1
 
