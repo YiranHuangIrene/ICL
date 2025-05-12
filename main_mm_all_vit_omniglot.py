@@ -181,7 +181,7 @@ if __name__ == "__main__":
         iterations = 8000
     else:
         iterations = 12000
-    ckpt_path_enc = f"{root}/outs_encoder_vit_omniglot/K_{K2}_n_img_per_class_{n_img_per_class}_eps_{eps0}_alpha_{alpha0}_augment_{augment}_patch_size_{patch_size}_output_dim_{D2}_depth_2_heads_1_niter_{iterations}/seed_0/ckpt_{iterations-1}.pt"
+    ckpt_path_enc = f"{root}/outs_encoder_vit_omniglot_old/K_{K2}_n_img_per_class_{n_img_per_class}_eps_{eps0}_alpha_{alpha0}_augment_{augment}_patch_size_{patch_size}_output_dim_{D2}_depth_2_heads_1_niter_{iterations}/seed_0/ckpt_{iterations-1}.pt"
 
     # Training parameters
     niters = 150000  # Number of iterations
