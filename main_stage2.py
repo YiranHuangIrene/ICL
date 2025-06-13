@@ -30,8 +30,8 @@ def compute_ih_strength(seq_labels,attn_weights):
         layer_attn_weights = attn_weights[i].squeeze(1)
         attn_correct = [[layer_attn_weights[n][-1][3*i+2] for i in m] for n,m in enumerate(matches)]
         attn_incorrect = [[layer_attn_weights[n][-1][3*i+2] for i in m] for n,m in enumerate(unmatches)]
-        score_correct= [sum(attn_correct[i]) for i in range(len(matches))]
-        score_incorrect= [sum(attn_incorrect[i]) for i in range(len(unmatches))]
+        score_correct= [sum(attn_correct[i])/len(attn_correct[i]) if len(attn_correct[i])>0 else 0 for i in range(len(matches))]
+        score_incorrect= [sum(attn_incorrect[i])/len(attn_incorrect[i]) if len(attn_incorrect[i])>0 else 0  for i in range(len(unmatches))]
         ih_strength = [score_correct[i] - score_incorrect[i] for i in range(len(score_correct))]
         ih_strength = sum(ih_strength)/len(ih_strength)
         scores.append(ih_strength)
@@ -45,7 +45,33 @@ def compute_TILA(seq_labels,attn_weights):
     for i in range(n_layers):
         layer_attn_weights = attn_weights[i].squeeze(1)
         attn_correct = [[layer_attn_weights[n][-1][3*i+2] for i in m] for n,m in enumerate(matches)]
-        score_correct= [sum(attn_correct[i]) if len(attn_correct[i]) > 0 else 0  for i in range(len(matches))]
+        score_correct= [sum(attn_correct[i])/len(attn_correct[i]) if len(attn_correct[i]) > 0 else 0  for i in range(len(matches))]
+        score_correct = sum(score_correct)/len(score_correct)
+        scores.append(score_correct)
+    return scores
+
+def compute_TIIA_m1(seq_labels,attn_weights):
+    # Compute the attention the target paid to all items with the correct label
+    matches = [(row[:-1] == row[-1]).nonzero(as_tuple=True)[0].tolist() for row in seq_labels]
+    n_layers = len(attn_weights)
+    scores = []
+    for i in range(n_layers):
+        layer_attn_weights = attn_weights[i].squeeze(1)
+        attn_correct = [[layer_attn_weights[n][-1][3*i] for i in m] for n,m in enumerate(matches)]
+        score_correct= [sum(attn_correct[i])/len(attn_correct[i]) if len(attn_correct[i]) > 0 else 0  for i in range(len(matches))]
+        score_correct = sum(score_correct)/len(score_correct)
+        scores.append(score_correct)
+    return scores
+
+def compute_TIIA_m2(seq_labels,attn_weights):
+    # Compute the attention the target paid to all items with the correct label
+    matches = [(row[:-1] == row[-1]).nonzero(as_tuple=True)[0].tolist() for row in seq_labels]
+    n_layers = len(attn_weights)
+    scores = []
+    for i in range(n_layers):
+        layer_attn_weights = attn_weights[i].squeeze(1)
+        attn_correct = [[layer_attn_weights[n][-1][3*i+1] for i in m] for n,m in enumerate(matches)]
+        score_correct= [sum(attn_correct[i])/len(attn_correct[i]) if len(attn_correct[i]) > 0 else 0  for i in range(len(matches))]
         score_correct = sum(score_correct)/len(score_correct)
         scores.append(score_correct)
     return scores
@@ -124,12 +150,14 @@ def evaluate(model, data, flip_labels=False, device=None, L2=None, progress_meas
                 labels.scatter_(1, labels_inds.unsqueeze(1), 1)
             loss = loss_criterion(outputs, labels)
             ih_strengths = compute_ih_strength(seq_labels, attn_weights)
+            tiias_m1 = compute_TIIA_m1(seq_labels, attn_weights)
+            tiias_m2 = compute_TIIA_m2(seq_labels, attn_weights)
             tilas = compute_TILA(seq_labels, attn_weights)
             tlas = compute_TLA(seq_labels, attn_weights)
             prev_1_attns = compute_prev_1_attn(attn_weights)
             prev_2_attns = compute_prev_2_attn(attn_weights)
             prob_icl_labels = compute_prob_icl_labels(outputs, seq_labels)
-            return loss, acc, ih_strengths, tilas, tlas, prev_1_attns, prev_2_attns, prob_icl_labels
+            return loss, acc, ih_strengths, tiias_m1, tiias_m2, tilas, tlas, prev_1_attns, prev_2_attns, prob_icl_labels
 
 def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_data,optimizer, device, print_every, ckpt_store_freq, prefix, niters, n_epochs, save_ckpt, progress_measure):
     model.to(device)
@@ -171,11 +199,18 @@ def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_d
                 metric_ic2 = evaluate(model, test_ic2_data, flip_labels=True, device=device,L2=L2, progress_measure=progress_measure)
                 loss_iw, acc_iw = evaluate(model, test_iw_data, flip_labels=False, device=device)
                 if progress_measure:
-                    loss_ic, acc_ic, ih_strengths_ic, tilas_ic, tlas_ic, prev_1_attns_ic, prev_2_attns_ic, prob_icl_labels_ic = metric_ic
-                    loss_ic2, acc_ic2, ih_strengths_ic2, tilas_ic2, tlas_ic2, prev_1_attns_ic2, prev_2_attns_ic2, prob_icl_labels_ic2 = metric_ic2
-                    print(f"Epoch {epoch}, Iteration {n}: Train loss: {loss:.4f}, Train acc: {acc:.4f}, Test loss: {loss_test:.4f}, Test acc: {acc_test:.4f}, IC loss: {loss_ic:.4f}, IC acc: {acc_ic:.4f}, IC2 loss: {loss_ic2:.4f}, IC2 acc: {acc_ic2:.4f}, IW loss: {loss_iw:.4f}, IW acc: {acc_iw:.4f}, layer1 IH strength: {ih_strengths_ic[0]:.4f}, layer2 IH strength: {ih_strengths_ic[1]:.4f}, layer1 TILA: {tilas_ic[0]:.4f}, layer2 TILA: {tilas_ic[1]:.4f}, layer1 TLA: {tlas_ic[0]:.4f}, layer2 TLA: {tlas_ic[1]:.4f}, layer1 prev_1_attn: {prev_1_attns_ic[0]:.4f}, layer2 prev_1_attn: {prev_1_attns_ic[1]:.4f}, layer1 prev_2_attn: {prev_2_attns_ic[0]:.4f}, layer2 prev_2_attn: {prev_2_attns_ic[1]:.4f}, prob_icl_labels: {prob_icl_labels_ic:.4f}")
+                    loss_ic, acc_ic, ih_strengths_ic, tiias_m1_ic, tiias_m2_ic, tilas_ic, tlas_ic, prev_1_attns_ic, prev_2_attns_ic, prob_icl_labels_ic = metric_ic
+                    loss_ic2, acc_ic2, ih_strengths_ic2, tiias_m1_ic2, tiias_m2_ic2, tilas_ic2, tlas_ic2, prev_1_attns_ic2, prev_2_attns_ic2, prob_icl_labels_ic2 = metric_ic2
+                    print(f"Epoch {epoch}, Iteration {n}: Train loss: {loss:.4f}, Train acc: {acc:.4f}, Test loss: {loss_test:.4f}, Test acc: {acc_test:.4f}, IC loss: {loss_ic:.4f}, IC acc: {acc_ic:.4f}, IC2 loss: {loss_ic2:.4f}, IC2 acc: {acc_ic2:.4f}, IW loss: {loss_iw:.4f}, IW acc: {acc_iw:.4f}, layer1 IH strength: {ih_strengths_ic[0]:.4f}, layer2 IH strength: {ih_strengths_ic[1]:.4f}, layer1 TIIA m1: {tiias_m1_ic[0]:.4f}, layer2 TIIA m1: {tiias_m1_ic[1]:.4f}, layer1 TIIA m2: {tiias_m2_ic[0]:.4f}, layer2 TIIA m2: {tiias_m2_ic[1]:.4f}, layer1 TILA: {tilas_ic[0]:.4f}, layer2 TILA: {tilas_ic[1]:.4f}, layer1 TLA: {tlas_ic[0]:.4f}, layer2 TLA: {tlas_ic[1]:.4f}, layer1 prev_1_attn: {prev_1_attns_ic[0]:.4f}, layer2 prev_1_attn: {prev_1_attns_ic[1]:.4f}, layer1 prev_2_attn: {prev_2_attns_ic[0]:.4f}, layer2 prev_2_attn: {prev_2_attns_ic[1]:.4f}, prob_icl_labels: {prob_icl_labels_ic:.4f}")
                     if WANDB:
-                        wandb.log({"Epoch": epoch, "Iteration": n, "global_iter": global_iter, "Train_Loss": loss, "Train_Accuracy": acc, "Test_Loss": loss_test, "Test_Accuracy": acc_test, "IC_Loss": loss_ic, "IC_Accuracy": acc_ic, "IC2_Loss": loss_ic2, "IC2_Accuracy": acc_ic2, "IW_Loss": loss_iw, "IW_Accuracy": acc_iw, "IH_strength_layer1": ih_strengths_ic[0], "IH_strength_layer2": ih_strengths_ic[1], "TILA_layer1": tilas_ic[0], "TILA_layer2": tilas_ic[1], "TLA_layer1": tlas_ic[0], "TLA_layer2": tlas_ic[1], "prev_1_attn_layer1": prev_1_attns_ic[0], "prev_1_attn_layer2": prev_1_attns_ic[1], "prev_2_attn_layer1": prev_2_attns_ic[0], "prev_2_attn_layer2": prev_2_attns_ic[1], "prob_icl_labels": prob_icl_labels_ic})
+                        wandb.log({"Epoch": epoch, "Iteration": n, "global_iter": global_iter, "Train_Loss": loss, "Train_Accuracy": acc, 
+                                   "Test_Loss": loss_test, "Test_Accuracy": acc_test, "IC_Loss": loss_ic, "IC_Accuracy": acc_ic, "IC2_Loss": loss_ic2, 
+                                   "IC2_Accuracy": acc_ic2, "IW_Loss": loss_iw, "IW_Accuracy": acc_iw, 
+                                   "IH_strength_layer1": ih_strengths_ic[0], "IH_strength_layer2": ih_strengths_ic[1], 
+                                   "TIIA_m1_layer1": tiias_m1_ic[0], "TIIA_m1_layer2": tiias_m1_ic[1], "TIIA_m2_layer1": tiias_m2_ic[0], "TIIA_m2_layer2": tiias_m2_ic[1],
+                                   "TILA_layer1": tilas_ic[0], "TILA_layer2": tilas_ic[1], "TLA_layer1": tlas_ic[0], "TLA_layer2": tlas_ic[1], 
+                                   "prev_1_attn_layer1": prev_1_attns_ic[0], "prev_1_attn_layer2": prev_1_attns_ic[1], "prev_2_attn_layer1": prev_2_attns_ic[0], "prev_2_attn_layer2": prev_2_attns_ic[1], 
+                                   "prob_icl_labels": prob_icl_labels_ic})
                 else:
                     loss_ic, acc_ic = metric_ic
                     loss_ic2, acc_ic2 = metric_ic2
@@ -284,6 +319,7 @@ if __name__ == "__main__":
                     "freeze_layers": freeze_layers,
                     "ckpt_path": ckpt_path,
                     "progress_measure": True,
+                    "normalize_progress_measure": True,
                 })
 
     # Initialize model
