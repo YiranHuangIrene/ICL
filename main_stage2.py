@@ -185,12 +185,12 @@ def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_d
             
             # Save checkpoint
             if save_ckpt:
-                if global_iter%ckpt_store_freq==0 and global_iter!=0:
+                if global_iter%ckpt_store_freq==0 and global_iter!=0 or global_iter==niters-1:
                     if not os.path.exists(prefix):
                         os.makedirs(prefix)
                         if not os.path.exists(f"{prefix}/seed_{SEED}"):
                             os.makedirs(f"{prefix}/seed_{SEED}")
-                        torch.save(model.state_dict(), f"{prefix}/seed_{SEED}/ckpt_{global_iter}.pt")
+                    torch.save(model.state_dict(), f"{prefix}/seed_{SEED}/ckpt_{global_iter}.pt")
                     
             # Evaluate  
             if global_iter%print_every==0:
@@ -270,7 +270,7 @@ if __name__ == "__main__":
     weight_decay = 1e-6  # Weight decay
     optimizer = sys.argv[25]
     print_every = 100  # Print every n iterations
-    ckpt_store_freq = 10000 # Store every n iterations
+    ckpt_store_freq = 20000 # Store every n iterations
     save_ckpt = bool(int(sys.argv[26]))
     progress_measure = bool(int(sys.argv[27]))
     if progress_measure:
