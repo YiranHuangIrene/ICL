@@ -275,6 +275,8 @@ if __name__ == "__main__":
     progress_measure = bool(int(sys.argv[27]))
     if progress_measure:
         seq_labels = True
+    else:
+        seq_labels = False
     if rope:
         input_dim = D1
     else:

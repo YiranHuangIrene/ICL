@@ -155,12 +155,13 @@ def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, tes
         optimizer.step()
         
         # Save checkpoint
-        if n%ckpt_store_freq==0 and n!=0 and save_ckpt or n==niters-1:
-            if not os.path.exists(prefix):
-                os.makedirs(prefix)
-            if not os.path.exists(f"{prefix}/seed_{SEED}"):
-                os.makedirs(f"{prefix}/seed_{SEED}")
-            torch.save(model.state_dict(), f"{prefix}/seed_{SEED}/ckpt_{n}.pt")
+        if save_ckpt:
+            if n%ckpt_store_freq==0 and n!=0 or n==niters-1:
+                if not os.path.exists(prefix):
+                    os.makedirs(prefix)
+                if not os.path.exists(f"{prefix}/seed_{SEED}"):
+                    os.makedirs(f"{prefix}/seed_{SEED}")
+                torch.save(model.state_dict(), f"{prefix}/seed_{SEED}/ckpt_{n}.pt")
             
         # Evaluate  
         if n%print_every==0:
@@ -184,7 +185,7 @@ def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, tes
         
 if __name__ == "__main__":
     # Set up CUDA and random seeds
-    device = torch.device(f"cuda:{int(sys.argv[20])}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{int(sys.argv[21])}" if torch.cuda.is_available() else "cpu")
     SEED = 0
     torch.manual_seed(SEED)
     np.random.seed(SEED)
@@ -212,29 +213,32 @@ if __name__ == "__main__":
     n_layers = int(sys.argv[12])  # Number of transformer layers
     rope = bool(int(sys.argv[13]))  # Whether to use RoPE
     rope_theta = int(sys.argv[14])  # Rope base
-    rms_norm = bool(int(sys.argv[15])) # Whether to use RMS normalization
+    alibi = bool(int(sys.argv[15]))
+    rms_norm = bool(int(sys.argv[16])) # Whether to use RMS normalization
 
     # Training parameters
-    niters = 300000  # Number of iterations
+    niters = 100000  # Number of iterations
     n_epochs = 1
-    batch_size = int(sys.argv[16])
+    batch_size = int(sys.argv[17])
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
-    optimizer = sys.argv[17]
+    optimizer = sys.argv[18]
     print_every = 1000  # Print every n iterations
-    ckpt_store_freq = 100000 # Store every n iterations
-    save_ckpt = bool(int(sys.argv[18]))
-    progress_measure = bool(int(sys.argv[19]))
+    ckpt_store_freq = 20000 # Store every n iterations
+    save_ckpt = bool(int(sys.argv[19]))
+    progress_measure = bool(int(sys.argv[20]))
     if progress_measure:
         seq_labels = True
+    else:
+        seq_labels = False
     
-    if rope:
+    if rope or alibi:
         input_dim = D
     else:
         input_dim = 2*Nmax + 1 + D
     
     # Initialize wandb
-    prefix = f"./outs_torch/K{K}_N{N}_D{D}_alpha{alpha}_B{B}_pB{p_B}_pC{p_C}_eps{eps}_no_repeats{no_repeats}_rope{rope}_rope_theta{rope_theta}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}_niters{niters}_progress_mesure"
+    prefix = f"./outs_torch/K{K}_N{N}_D{D}_alpha{alpha}_B{B}_pB{p_B}_pC{p_C}_eps{eps}_no_repeats{no_repeats}_rope{rope}_rope_theta{rope_theta}_alibi{alibi}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}_niters{niters}_progress_mesure"
     if WANDB:
         wandb.init(project="ICL_torch",
                 name=f"run_{SEED}_{prefix.split('/')[-1]}",
@@ -253,6 +257,7 @@ if __name__ == "__main__":
                     "no_repeats": no_repeats,
                     "rope": rope,
                     "rope_theta": rope_theta,
+                    "alibi": alibi,
                     "n_heads": n_heads,
                     "n_layers": n_layers,
                     "rms_norm": rms_norm,
@@ -277,7 +282,8 @@ if __name__ == "__main__":
         mlp_bias=True,
         rms_norm=rms_norm,
         rope=rope,
-        norm_eps=1e-5
+        norm_eps=1e-5,
+        use_alibi=alibi
     )
     model = Transformer(model_args)
     print("Model structure:")
@@ -297,7 +303,7 @@ if __name__ == "__main__":
         mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
         N=N, S=batch_size, Nmax=Nmax,
         eps=eps, B=B, p_B=p_B, p_C=p_C, P=P, datasize=niters,
-        no_repeats=no_repeats, rope=rope
+        no_repeats=no_repeats, rope=(rope or alibi)
     )
 
     # test_dataset = ICLDataset(
@@ -332,10 +338,10 @@ if __name__ == "__main__":
     
     # Load the datasets with dataloader
     train_loader = DataLoader(train_dataset, batch_size=None,num_workers=1)
-    test_data  = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, rope=rope)
-    test_ic_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = 1, p_C = 1, no_repeats = no_repeats, rope=rope,seq_labels=seq_labels)
-    test_ic2_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = 1, p_C = 0, flip_labels = True, no_repeats = no_repeats, rope=rope,seq_labels=seq_labels)
-    test_iw_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = 0, p_B = 0, p_C = 0, no_repeats = no_repeats, rope=rope)
+    test_data  = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, rope=(rope or alibi))
+    test_ic_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = 1, p_C = 1, no_repeats = no_repeats, rope=(rope or alibi),seq_labels=seq_labels)
+    test_ic2_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = 1, p_C = 0, flip_labels = True, no_repeats = no_repeats, rope=(rope or alibi),seq_labels=seq_labels)
+    test_iw_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = 0, p_B = 0, p_C = 0, no_repeats = no_repeats, rope=(rope or alibi))
 
     
     train(model=model, train_loader=train_loader, test_loader=test_data, test_ic_loader=test_ic_data, test_ic2_loader=test_ic2_data, test_iw_loader=test_iw_data, optimizer=optimizer, device=device, print_every=print_every, save_ckpt=save_ckpt, ckpt_store_freq=ckpt_store_freq, prefix=prefix, niters=niters, n_epochs=n_epochs, progress_measure=progress_measure)
