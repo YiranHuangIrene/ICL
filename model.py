@@ -26,6 +26,7 @@ class ModelArgs:
     rope_theta: float = 10000
     mlp_bias: bool = True
     L_pos: int = 64
+    use_alibi: bool = False  
 
 @dataclass
 class MLPEncoderArgs:
@@ -110,7 +111,37 @@ def apply_rotary_pos_emb(q, k, cos, sin):
     k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
 
-    
+def _get_alibi_slopes(n_heads: int) -> torch.Tensor:
+    # Press et al. (2021)
+    import math
+    def closest_power_of_2(n): return 2 ** math.floor(math.log2(n))
+    m = closest_power_of_2(n_heads)
+    base = 2 ** (-(2 ** -(math.log2(m) - 3)))
+    slopes = [base ** (i + 1) for i in range(m)]
+    if m < n_heads:
+        extra = _get_alibi_slopes(2 * m).tolist()
+        slopes += extra[::2][: n_heads - m]
+    return torch.tensor(slopes)
+
+class AlibiBias(nn.Module):
+    def __init__(self, n_heads: int):
+        super().__init__()
+        self.register_buffer("slopes", _get_alibi_slopes(n_heads).view(1, n_heads, 1, 1), persistent=False)
+        self._dist_cache = None  # (L,L) distance matrix cache
+
+    def get_bias(self, seqlen: int, device, dtype):
+        # distance(i,j) = i - j for j<=i (0 on/above diagonal after clamp); larger distance => larger penalty
+        if self._dist_cache is None or self._dist_cache.size(0) < seqlen:
+            i = torch.arange(seqlen, device=device)
+            j = torch.arange(seqlen, device=device)
+            dist = (i.unsqueeze(1) - j.unsqueeze(0)).clamp_min(0).float()  # (L,L)
+            self._dist_cache = dist
+        dist = self._dist_cache[:seqlen, :seqlen].to(dtype=dtype)
+        # shape -> (1,1,L,L), then broadcast with slopes (1,H,1,1) => (1,H,L,L)
+        bias = -dist.unsqueeze(0).unsqueeze(0)
+        return bias * self.slopes.to(device=device, dtype=dtype)
+
+  
 class MLP(nn.Module):
     def __init__(self, args: ModelArgs):
         super().__init__()
@@ -145,6 +176,7 @@ class Attention(nn.Module):
             self.wo = nn.Linear(self.dim, self.dim, bias = False)
         if args.rope:
             self.rotary_emb = RotaryEmbedding(self.head_dim, max_position_embeddings=args.max_position_embeddings, base=args.rope_theta)
+        self.alibi = AlibiBias(self.n_heads) if args.use_alibi else None
         self._init_weights()
         
     def _init_weights(self):
@@ -166,6 +198,11 @@ class Attention(nn.Module):
         
         attn_weights = torch.matmul(queries, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
         attn_weights = attn_weights + mask
+        
+        if self.alibi is not None:
+            alibi_bias = self.alibi.get_bias(seqlen, device=x.device, dtype=attn_scores.dtype)  # (1,H,L,L)
+            attn_scores = attn_scores + alibi_bias
+        
         attn_weights = F.softmax(attn_weights.float(), dim=-1).type_as(queries)
         output = torch.matmul(attn_weights, values)  # (bs, n_local_heads, seqlen, head_dim)
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
@@ -296,7 +333,7 @@ class MMTransformer(Transformer):
         feat_dim = x_m1.shape[2]
         x_m1[:,1:-1:3,:] = x_m2[:,:-1,:]
         x_m1[:,-1,:] = x_m2[:,-1,:]
-        if self.args.rope:
+        if self.args.rope or self.use_alibi:
             inputs = x_m1
         else:
             inputs = torch.zeros((bsz, seq_len, self.args.L_pos + feat_dim), device=x_m1.device, dtype=x_m1.dtype)
@@ -326,7 +363,7 @@ class MMTransformer_large(Transformer):
         feat_dim = x_m1.shape[2]
         x_m1[:,1:-1:3,:] = x_m2[:,:-1,:]
         x_m1[:,-1,:] = x_m2[:,-1,:]
-        if self.args.rope:
+        if self.args.rope or self.use_alibi:
             inputs = x_m1
         else:
             inputs = torch.zeros((bsz, seq_len, self.args.L_pos + feat_dim), device=x_m1.device, dtype=x_m1.dtype)
@@ -538,7 +575,7 @@ class MLLMTransformer(Transformer):
         feat_dim = x_m1.shape[2]
         x_m1[:,1:-1:3,:] = x_m2[:,:-1,:]
         x_m1[:,-1,:] = x_m2[:,-1,:]
-        if self.args.rope:
+        if self.args.rope or self.use_alibi:
             inputs = x_m1
         else:
             inputs = torch.zeros((bsz, seq_len, self.args.L_pos + feat_dim), device=x_m1.device, dtype=x_m1.dtype)
