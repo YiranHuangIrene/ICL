@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from tqdm import tqdm
 
-WANDB = True
+WANDB = False
 
 def accuracy(outputs, labels, flip_labels=False):
     predictions = F.softmax(outputs, dim=-1)
@@ -214,7 +214,7 @@ if __name__ == "__main__":
     rope = bool(int(sys.argv[13]))  # Whether to use RoPE
     rope_theta = int(sys.argv[14])  # Rope base
     alibi = bool(int(sys.argv[15]))
-    hybird = bool(int(sys.argv[16]))
+    hybrid = bool(int(sys.argv[16]))
     rms_norm = bool(int(sys.argv[17])) # Whether to use RMS normalization
 
     # Training parameters
@@ -233,13 +233,15 @@ if __name__ == "__main__":
     else:
         seq_labels = False
     
-    if rope or alibi:
+    if hybrid:
+        input_dim = 2*Nmax + D + 2 
+    elif rope or alibi:
         input_dim = D
     else:
-        input_dim = 2*Nmax + 1 + D
+        input_dim = 2*Nmax + 1 + D    
     
     # Initialize wandb
-    prefix = f"./outs_torch_rebuttal/K{K}_N{N}_D{D}_alpha{alpha}_B{B}_pB{p_B}_pC{p_C}_eps{eps}_no_repeats{no_repeats}_rope{rope}_rope_theta{rope_theta}_alibi{alibi}_hybird{hybird}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}_niters{niters}_progress_mesure"
+    prefix = f"./outs_torch_rebuttal/K{K}_N{N}_D{D}_alpha{alpha}_B{B}_pB{p_B}_pC{p_C}_eps{eps}_no_repeats{no_repeats}_rope{rope}_rope_theta{rope_theta}_alibi{alibi}_hybrid{hybrid}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}_niters{niters}_progress_mesure"
     if WANDB:
         wandb.init(project="ICL_torch",
                 name=f"run_{SEED}_{prefix.split('/')[-1]}",
@@ -259,7 +261,7 @@ if __name__ == "__main__":
                     "rope": rope,
                     "rope_theta": rope_theta,
                     "alibi": alibi,
-                    "hybird": hybird,
+                    "hybrid": hybrid,
                     "n_heads": n_heads,
                     "n_layers": n_layers,
                     "rms_norm": rms_norm,
@@ -275,19 +277,24 @@ if __name__ == "__main__":
                 tags=["PE-rebuttal"]
                 )
 
+    if hybrid:
+        max_position_embeddings = input_dim
+    else:
+        max_position_embeddings = 2*N+1
     # Initialize model
     model_args = ModelArgs(
         dim=input_dim,
         n_layers=n_layers,
         n_heads=n_heads,
         n_labels=L,
-        max_position_embeddings=2*N+1,
+        max_position_embeddings=max_position_embeddings,
         rope_theta=rope_theta,
         mlp_bias=True,
         rms_norm=rms_norm,
         rope=rope,
         norm_eps=1e-5,
-        use_alibi=alibi
+        use_alibi=alibi,
+        use_hybrid=hybrid
     )
     model = Transformer(model_args)
     print("Model structure:")
@@ -307,7 +314,7 @@ if __name__ == "__main__":
         mus_label=mus_label, mus_class=mus_class, labels_class=labels_class,
         N=N, S=batch_size, Nmax=Nmax,
         eps=eps, B=B, p_B=p_B, p_C=p_C, P=P, datasize=niters,
-        no_repeats=no_repeats, rope=(rope or alibi)
+        no_repeats=no_repeats, rope=(rope or alibi), hybrid=hybrid
     )
 
     # test_dataset = ICLDataset(
@@ -342,10 +349,10 @@ if __name__ == "__main__":
     
     # Load the datasets with dataloader
     train_loader = DataLoader(train_dataset, batch_size=None,num_workers=1)
-    test_data  = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, rope=(rope or alibi))
-    test_ic_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = 1, p_C = 1, no_repeats = no_repeats, rope=(rope or alibi),seq_labels=seq_labels)
-    test_ic2_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = 1, p_C = 0, flip_labels = True, no_repeats = no_repeats, rope=(rope or alibi),seq_labels=seq_labels)
-    test_iw_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = 0, p_B = 0, p_C = 0, no_repeats = no_repeats, rope=(rope or alibi))
+    test_data  = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = p_B, p_C = p_C, no_repeats = no_repeats, rope=(rope or alibi),hybrid=hybrid)
+    test_ic_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = 1, p_C = 1, no_repeats = no_repeats, rope=(rope or alibi),seq_labels=seq_labels,hybrid=hybrid)
+    test_ic2_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = B, p_B = 1, p_C = 0, flip_labels = True, no_repeats = no_repeats, rope=(rope or alibi),seq_labels=seq_labels,hybrid=hybrid)
+    test_iw_data = generate_input_seqs(mus_label,mus_class,labels_class,N,S, Nmax,eps = eps, P = P, B = 0, p_B = 0, p_C = 0, no_repeats = no_repeats, rope=(rope or alibi),hybrid=hybrid)
 
     
     train(model=model, train_loader=train_loader, test_loader=test_data, test_ic_loader=test_ic_data, test_ic2_loader=test_ic2_data, test_iw_loader=test_iw_data, optimizer=optimizer, device=device, print_every=print_every, save_ckpt=save_ckpt, ckpt_store_freq=ckpt_store_freq, prefix=prefix, niters=niters, n_epochs=n_epochs, progress_measure=progress_measure)

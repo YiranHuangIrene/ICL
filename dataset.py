@@ -89,7 +89,7 @@ def generate_encoder_input(mus_class,eps,S):
     labels[np.arange(S),choices] = True
     return torch.FloatTensor(inputs), torch.FloatTensor(labels)
 
-def generate_input_seqs(mus_label, mus_class, labels_class, N,S, Nmax, eps= 0.1, B = 0, p_B = 0, P = None, p_C = 0, flip_labels = False, output_target_labels = False, no_repeats = False, seq_labels = False, rope = True):
+def generate_input_seqs(mus_label, mus_class, labels_class, N,S, Nmax, eps= 0.1, B = 0, p_B = 0, P = None, p_C = 0, flip_labels = False, output_target_labels = False, no_repeats = False, seq_labels = False, rope = True, hybrid = False):
     e_fac = 1/np.sqrt(1+eps**2)
     
     L = mus_label.shape[0]
@@ -105,7 +105,9 @@ def generate_input_seqs(mus_label, mus_class, labels_class, N,S, Nmax, eps= 0.1,
         return 0
     labels_class_new =  np.tile(np.arange(L),int(K_c/L))
     
-    if rope:
+    if hybrid:
+        input_dim = 2*Nmax + 2 + D
+    elif rope:
         input_dim = D
     else:
         input_dim = 2*Nmax+1 + D
@@ -161,7 +163,9 @@ def generate_input_seqs(mus_label, mus_class, labels_class, N,S, Nmax, eps= 0.1,
 
     #print(np.arange(S)[~filt_C])
     #print(np.arange(S)[~filt_B])
-    if rope:
+    if hybrid:
+        start_ind = 2*Nmax + 2
+    elif rope:
         start_ind = 0
     else:
         start_ind = 2*Nmax+1
@@ -195,7 +199,9 @@ def generate_input_seqs(mus_label, mus_class, labels_class, N,S, Nmax, eps= 0.1,
             labels[s,labels_class_new[targets_c[s]]] = True
             target_classes[s] = -1
             label_sequences[s] = np.append(labels_class_new[choices_c[s]],labels_class_new[targets_c[s]])
-        if not rope:
+        if hybrid:
+            inputs[s,:,shifts[s]:shifts[s] + 2*N+1] = np.identity(2*N+1)
+        elif not rope:
             inputs[s,:,shifts[s]:shifts[s] + 2*N+1] = np.identity(2*N+1)
 
     if seq_labels:
@@ -406,6 +412,7 @@ class ICLDataset(IterableDataset):
         datasize: int = 10,  # Number of sequences to generate
         flip_labels: bool = False,  # Whether to flip labels
         no_repeats: bool = False,  # Whether to allow repeated items
+        hybrid: bool = False,  # Whether to use hybrid position embeddings
         rope: bool = False,  # Whether using rotary position embeddings
         output_target_labels: bool = False,  # Whether to output target labels
         seq_labels: bool = False,  # Whether to output sequence labels
@@ -425,6 +432,7 @@ class ICLDataset(IterableDataset):
         self.p_B = p_B
         self.p_C = p_C
         self.no_repeats = no_repeats
+        self.hybrid = hybrid
         self.rope = rope
         self.flip_labels = flip_labels
         self.output_target_labels = output_target_labels
@@ -454,12 +462,12 @@ class ICLDataset(IterableDataset):
     def generate_sequence(self):
         """Generate a single sequence"""
         e_fac = 1/np.sqrt(1 + self.eps**2)
-        
-        if self.rope:
+        if self.hybrid:
+            input_dim = 2*self.Nmax + 2 + self.D
+        elif self.rope:
             input_dim = self.D
         else:
             input_dim = 2*self.Nmax + 1 + self.D
-            
         inputs = np.zeros((self.S, 2*self.N + 1, input_dim))
         
         # Generate context items
@@ -505,7 +513,9 @@ class ICLDataset(IterableDataset):
         choices[~is_bursty] = np.random.choice(self.K, size=(np.sum(~is_bursty), self.N), p=self.P)
         target[~is_bursty] = np.random.choice(self.K, size=(np.sum(~is_bursty),), p=self.P)
             
-        if self.rope:
+        if self.hybrid:
+            start_ind = 2*self.Nmax + 2
+        elif self.rope:
             start_ind = 0
         else:
             start_ind = 2*self.Nmax + 1
@@ -547,8 +557,10 @@ class ICLDataset(IterableDataset):
                 labels[s,self.labels_class[target[s]]] = True
                 target_classes[s] = target[s]
                 label_sequences[s] = np.append(self.labels_class[choices[s]],self.labels_class[target[s]])
-            if not self.rope:
-                    inputs[s,:,shifts[s]:shifts[s] + 2*self.N+1] = np.identity(2*self.N+1)  
+            if self.hybrid:
+                inputs[s,:,shifts[s]:shifts[s] + 2*self.N+1] = np.identity(2*self.N+1)  
+            elif not self.rope:
+                inputs[s,:,shifts[s]:shifts[s] + 2*self.N+1] = np.identity(2*self.N+1)  
                 
         if self.seq_labels:
             return torch.FloatTensor(inputs), torch.FloatTensor(labels), torch.FloatTensor(label_sequences)
