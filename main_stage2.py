@@ -222,7 +222,7 @@ def train(model,train_loader, test_data,  test_ic_data, test_ic2_data, test_iw_d
         
 if __name__ == "__main__":
     # Set up CUDA and random seeds
-    device = torch.device(f"cuda:{int(sys.argv[28])}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{int(sys.argv[29])}" if torch.cuda.is_available() else "cpu")
     SEED = 0
     torch.manual_seed(SEED)
     np.random.seed(SEED)
@@ -261,18 +261,19 @@ if __name__ == "__main__":
     L_pos = int(sys.argv[21])
     freeze_layers = bool(int(sys.argv[22]))
     ckpt_path = sys.argv[23]
+    early_fusion = bool(int(sys.argv[24]))
     
     # Training parameters
-    niters = 80000  # Number of iterations
+    niters = 300000  # Number of iterations 80000 for normal 300000 for early fusion
     n_epochs = 1  # Number of epochs
-    batch_size = int(sys.argv[24])
+    batch_size = int(sys.argv[25])
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
-    optimizer = sys.argv[25]
+    optimizer = sys.argv[26]
     print_every = 100  # Print every n iterations
-    ckpt_store_freq = 20000 # Store every n iterations
-    save_ckpt = bool(int(sys.argv[26]))
-    progress_measure = bool(int(sys.argv[27]))
+    ckpt_store_freq = 40000 # Store every n iterations
+    save_ckpt = bool(int(sys.argv[27]))
+    progress_measure = bool(int(sys.argv[28]))
     if progress_measure:
         seq_labels = True
     else:
@@ -283,7 +284,7 @@ if __name__ == "__main__":
         input_dim = L_pos + D1
         
    # Initialize wandb
-    prefix = f"./outs_torch/K1_{K1}_K2_{K2}_N{N}_D1_{D1}_D2_{D2}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_rope_theta{rope_theta}_freeze_layers{freeze_layers}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}_niters{niters}_n_epochs{n_epochs}"
+    prefix = f"./outs_torch/K1_{K1}_K2_{K2}_N{N}_D1_{D1}_D2_{D2}_L1_{L1}_L2_{L2}_alpha1_{alpha1}_alpha2_{alpha2}_B{B}_pB{p_B}_pC{p_C}_eps1_{eps1}_eps2_{eps2}_no_repeats{no_repeats}_rope_{rope}_rope_theta{rope_theta}_freeze_layers{freeze_layers}_early_fusion{early_fusion}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}_niters{niters}_n_epochs{n_epochs}"
     if WANDB:
         wandb.init(project="ICL_torch",
                 name=f"run_{SEED}_{prefix.split('/')[-1]}",
@@ -320,9 +321,12 @@ if __name__ == "__main__":
                     "L_pos": L_pos,
                     "freeze_layers": freeze_layers,
                     "ckpt_path": ckpt_path,
+                    "early_fusion": early_fusion,
                     "progress_measure": True,
                     "normalize_progress_measure": True,
-                })
+                },
+                tags=["early_fusion_rebuttal"]
+                )
 
     # Initialize model
     model_args = ModelArgs(
@@ -344,8 +348,9 @@ if __name__ == "__main__":
     print("Model structure:")
     print(model)
     # weights = "/shared-local/aoq609/MLLM_ICL/ICL/outs_torch/K8192_N8_D64_alpha0.0_B2_pB1.0_pC0.0_eps0.1_no_repeatsFalse_rope_theta10000_n_heads1_n_layers2_rms_normTrue_optimizerSGD_niters30000_n_epochs10/seed_0/ckpt_150000.pt"
-    weights = ckpt_path
-    model.load_state_dict(torch.load(weights),strict=False)
+    if not early_fusion:
+        weights = ckpt_path
+        model.load_state_dict(torch.load(weights),strict=False)
     if freeze_layers:
         for p in model.layers.parameters():
             p.requires_grad = False

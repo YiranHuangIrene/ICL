@@ -185,7 +185,7 @@ def train(model, train_loader, test_loader, test_ic_loader, test_ic2_loader, tes
         
 if __name__ == "__main__":
     # Set up CUDA and random seeds
-    device = torch.device(f"cuda:{int(sys.argv[21])}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{int(sys.argv[22])}" if torch.cuda.is_available() else "cpu")
     SEED = 0
     torch.manual_seed(SEED)
     np.random.seed(SEED)
@@ -214,19 +214,20 @@ if __name__ == "__main__":
     rope = bool(int(sys.argv[13]))  # Whether to use RoPE
     rope_theta = int(sys.argv[14])  # Rope base
     alibi = bool(int(sys.argv[15]))
-    rms_norm = bool(int(sys.argv[16])) # Whether to use RMS normalization
+    hybird = bool(int(sys.argv[16]))
+    rms_norm = bool(int(sys.argv[17])) # Whether to use RMS normalization
 
     # Training parameters
-    niters = 100000  # Number of iterations
+    niters = 300000  # Number of iterations
     n_epochs = 1
-    batch_size = int(sys.argv[17])
+    batch_size = int(sys.argv[18])
     lr = 1e-3  # Learning rate
     weight_decay = 1e-6  # Weight decay
-    optimizer = sys.argv[18]
+    optimizer = sys.argv[19]
     print_every = 1000  # Print every n iterations
-    ckpt_store_freq = 20000 # Store every n iterations
-    save_ckpt = bool(int(sys.argv[19]))
-    progress_measure = bool(int(sys.argv[20]))
+    ckpt_store_freq = 100000 # Store every n iterations
+    save_ckpt = bool(int(sys.argv[20]))
+    progress_measure = bool(int(sys.argv[21]))
     if progress_measure:
         seq_labels = True
     else:
@@ -238,7 +239,7 @@ if __name__ == "__main__":
         input_dim = 2*Nmax + 1 + D
     
     # Initialize wandb
-    prefix = f"./outs_torch/K{K}_N{N}_D{D}_alpha{alpha}_B{B}_pB{p_B}_pC{p_C}_eps{eps}_no_repeats{no_repeats}_rope{rope}_rope_theta{rope_theta}_alibi{alibi}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}_niters{niters}_progress_mesure"
+    prefix = f"./outs_torch_rebuttal/K{K}_N{N}_D{D}_alpha{alpha}_B{B}_pB{p_B}_pC{p_C}_eps{eps}_no_repeats{no_repeats}_rope{rope}_rope_theta{rope_theta}_alibi{alibi}_hybird{hybird}_n_heads{n_heads}_n_layers{n_layers}_rms_norm{rms_norm}_optimizer{optimizer}_niters{niters}_progress_mesure"
     if WANDB:
         wandb.init(project="ICL_torch",
                 name=f"run_{SEED}_{prefix.split('/')[-1]}",
@@ -258,6 +259,7 @@ if __name__ == "__main__":
                     "rope": rope,
                     "rope_theta": rope_theta,
                     "alibi": alibi,
+                    "hybird": hybird,
                     "n_heads": n_heads,
                     "n_layers": n_layers,
                     "rms_norm": rms_norm,
@@ -269,7 +271,9 @@ if __name__ == "__main__":
                     "seed": SEED,
                     "progress_measure": progress_measure,
                     "normalize_progress_measure": True
-                })
+                },
+                tags=["PE-rebuttal"]
+                )
 
     # Initialize model
     model_args = ModelArgs(

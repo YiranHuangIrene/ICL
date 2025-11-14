@@ -27,6 +27,7 @@ class ModelArgs:
     mlp_bias: bool = True
     L_pos: int = 64
     use_alibi: bool = False  
+    use_hybrid: bool = False
 
 @dataclass
 class MLPEncoderArgs:
@@ -200,8 +201,8 @@ class Attention(nn.Module):
         attn_weights = attn_weights + mask
         
         if self.alibi is not None:
-            alibi_bias = self.alibi.get_bias(seqlen, device=x.device, dtype=attn_scores.dtype)  # (1,H,L,L)
-            attn_scores = attn_scores + alibi_bias
+            alibi_bias = self.alibi.get_bias(seqlen, device=x.device, dtype=attn_weights.dtype)  # (1,H,L,L)
+            attn_weights = attn_weights + alibi_bias
         
         attn_weights = F.softmax(attn_weights.float(), dim=-1).type_as(queries)
         output = torch.matmul(attn_weights, values)  # (bs, n_local_heads, seqlen, head_dim)
@@ -333,7 +334,7 @@ class MMTransformer(Transformer):
         feat_dim = x_m1.shape[2]
         x_m1[:,1:-1:3,:] = x_m2[:,:-1,:]
         x_m1[:,-1,:] = x_m2[:,-1,:]
-        if self.args.rope or self.use_alibi:
+        if self.args.rope or self.args.use_alibi or self.args.use_hybrid:
             inputs = x_m1
         else:
             inputs = torch.zeros((bsz, seq_len, self.args.L_pos + feat_dim), device=x_m1.device, dtype=x_m1.dtype)
@@ -363,7 +364,7 @@ class MMTransformer_large(Transformer):
         feat_dim = x_m1.shape[2]
         x_m1[:,1:-1:3,:] = x_m2[:,:-1,:]
         x_m1[:,-1,:] = x_m2[:,-1,:]
-        if self.args.rope or self.use_alibi:
+        if self.args.rope or self.args.use_alibi or self.args.use_hybrid:
             inputs = x_m1
         else:
             inputs = torch.zeros((bsz, seq_len, self.args.L_pos + feat_dim), device=x_m1.device, dtype=x_m1.dtype)
@@ -575,7 +576,7 @@ class MLLMTransformer(Transformer):
         feat_dim = x_m1.shape[2]
         x_m1[:,1:-1:3,:] = x_m2[:,:-1,:]
         x_m1[:,-1,:] = x_m2[:,-1,:]
-        if self.args.rope or self.use_alibi:
+        if self.args.rope or self.args.use_alibi or self.args.use_hybrid:
             inputs = x_m1
         else:
             inputs = torch.zeros((bsz, seq_len, self.args.L_pos + feat_dim), device=x_m1.device, dtype=x_m1.dtype)
